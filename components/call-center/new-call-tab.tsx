@@ -1,28 +1,86 @@
 "use client"
 
-import { useState } from "react"
+import { useState, useEffect } from "react"
 import { PhoneIcon } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Label } from "@/components/ui/label"
 import { Checkbox } from "@/components/ui/checkbox"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
-import type { Contact, Script } from "@/lib/db/schema"
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card"
 import { toast } from "sonner"
 import { useRouter } from "next/navigation"
 
-interface NewCallTabProps {
-  contacts: Contact[]
-  scripts: Script[]
-  loading: boolean
-  onCallInitiated: () => void
+// Define explicit types with defaults
+interface Contact {
+  id: number
+  name: string
+  phoneNumber: string
+  [key: string]: any
 }
 
-export function NewCallTab({ contacts, scripts, loading, onCallInitiated }: NewCallTabProps) {
+interface Script {
+  id: number
+  title: string
+  content: string
+  isTemplate?: boolean
+  [key: string]: any
+}
+
+interface Config {
+  id: number
+  name: string
+  humeConfigId: string
+  [key: string]: any
+}
+
+interface NewCallTabProps {
+  contacts?: Contact[]
+  scripts?: Script[]
+  loading?: boolean
+  onCallInitiated?: () => void
+}
+
+export function NewCallTab({
+  contacts = [],
+  scripts = [],
+  loading = false,
+  onCallInitiated = () => {},
+}: NewCallTabProps) {
   const router = useRouter()
   const [selectedContacts, setSelectedContacts] = useState<number[]>([])
   const [selectedScript, setSelectedScript] = useState<number | null>(null)
+  const [selectedConfig, setSelectedConfig] = useState<string | null>(null)
   const [initiatingCall, setInitiatingCall] = useState(false)
+  const [configs, setConfigs] = useState<Config[]>([])
+  const [loadingConfigs, setLoadingConfigs] = useState(false)
+
+  // Safely access arrays with fallbacks
+  const safeContacts = Array.isArray(contacts) ? contacts : []
+  const safeScripts = Array.isArray(scripts) ? scripts : []
+
+  // Fetch configurations when component mounts
+  useEffect(() => {
+    const fetchConfigs = async () => {
+      try {
+        setLoadingConfigs(true)
+        const response = await fetch("/api/configs")
+        if (response.ok) {
+          const data = await response.json()
+          setConfigs(Array.isArray(data.configs) ? data.configs : [])
+        } else {
+          console.error("Failed to fetch configurations")
+          setConfigs([])
+        }
+      } catch (error) {
+        console.error("Error fetching configurations:", error)
+        setConfigs([])
+      } finally {
+        setLoadingConfigs(false)
+      }
+    }
+
+    fetchConfigs()
+  }, [])
 
   const handleContactToggle = (contactId: number) => {
     setSelectedContacts((prev) =>
@@ -31,10 +89,10 @@ export function NewCallTab({ contacts, scripts, loading, onCallInitiated }: NewC
   }
 
   const handleSelectAllContacts = () => {
-    if (selectedContacts.length === contacts.length) {
+    if (selectedContacts.length === safeContacts.length) {
       setSelectedContacts([])
     } else {
-      setSelectedContacts(contacts.map((contact) => contact.id))
+      setSelectedContacts(safeContacts.map((contact) => contact.id))
     }
   }
 
@@ -52,21 +110,28 @@ export function NewCallTab({ contacts, scripts, loading, onCallInitiated }: NewC
     try {
       setInitiatingCall(true)
 
+      const payload: any = {
+        scriptId: selectedScript,
+        contactIds: selectedContacts,
+      }
+
+      // Add configuration ID if selected
+      if (selectedConfig) {
+        payload.configId = selectedConfig
+      }
+
       const response = await fetch("/api/calls", {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
         },
-        body: JSON.stringify({
-          scriptId: selectedScript,
-          contactIds: selectedContacts,
-        }),
+        body: JSON.stringify(payload),
       })
 
       if (response.ok) {
         const data = await response.json()
         toast.success("Calls initiated successfully")
-        onCallInitiated()
+        if (onCallInitiated) onCallInitiated()
         router.push(`/dashboard/calls/${data.callRecordId}`)
       } else {
         const error = await response.json()
@@ -90,7 +155,7 @@ export function NewCallTab({ contacts, scripts, loading, onCallInitiated }: NewC
         <CardContent>
           {loading ? (
             <div className="flex justify-center py-8">Loading contacts...</div>
-          ) : contacts.length === 0 ? (
+          ) : safeContacts.length === 0 ? (
             <div className="flex flex-col items-center justify-center py-8 text-center">
               <p className="text-muted-foreground">No contacts found</p>
             </div>
@@ -99,13 +164,13 @@ export function NewCallTab({ contacts, scripts, loading, onCallInitiated }: NewC
               <div className="flex items-center space-x-2">
                 <Checkbox
                   id="selectAll"
-                  checked={contacts.length > 0 && selectedContacts.length === contacts.length}
+                  checked={safeContacts.length > 0 && selectedContacts.length === safeContacts.length}
                   onCheckedChange={handleSelectAllContacts}
                 />
                 <Label htmlFor="selectAll">Select All</Label>
               </div>
               <div className="max-h-[400px] space-y-2 overflow-y-auto rounded-md border p-4">
-                {contacts.map((contact) => (
+                {safeContacts.map((contact) => (
                   <div key={contact.id} className="flex items-center space-x-2">
                     <Checkbox
                       id={`contact-${contact.id}`}
@@ -120,7 +185,7 @@ export function NewCallTab({ contacts, scripts, loading, onCallInitiated }: NewC
                 ))}
               </div>
               <div className="text-sm text-muted-foreground">
-                {selectedContacts.length} of {contacts.length} contacts selected
+                {selectedContacts.length} of {safeContacts.length} contacts selected
               </div>
             </div>
           )}
@@ -129,42 +194,80 @@ export function NewCallTab({ contacts, scripts, loading, onCallInitiated }: NewC
 
       <Card>
         <CardHeader>
-          <CardTitle>Select Script</CardTitle>
-          <CardDescription>Choose a script for the AI agent</CardDescription>
+          <CardTitle>Call Settings</CardTitle>
+          <CardDescription>Configure your call settings</CardDescription>
         </CardHeader>
         <CardContent>
-          {loading ? (
-            <div className="flex justify-center py-8">Loading scripts...</div>
-          ) : scripts.length === 0 ? (
-            <div className="flex flex-col items-center justify-center py-8 text-center">
-              <p className="text-muted-foreground">No scripts found</p>
-            </div>
-          ) : (
-            <div className="space-y-4">
+          <div className="space-y-4">
+            {/* Script Selection */}
+            <div className="space-y-2">
+              <Label htmlFor="script">Select Script</Label>
               <Select onValueChange={(value) => setSelectedScript(Number(value))}>
-                <SelectTrigger>
+                <SelectTrigger id="script">
                   <SelectValue placeholder="Select a script" />
                 </SelectTrigger>
                 <SelectContent>
-                  {scripts.map((script) => (
-                    <SelectItem key={script.id} value={script.id.toString()}>
-                      {script.title}
-                      {script.isTemplate ? " (Template)" : ""}
+                  {safeScripts.length === 0 ? (
+                    <SelectItem value="none" disabled>
+                      No scripts available
                     </SelectItem>
-                  ))}
+                  ) : (
+                    safeScripts.map((script) => (
+                      <SelectItem key={script.id} value={script.id.toString()}>
+                        {script.title}
+                        {script.isTemplate ? " (Template)" : ""}
+                      </SelectItem>
+                    ))
+                  )}
                 </SelectContent>
               </Select>
-
-              {selectedScript && (
-                <div className="rounded-md border p-4">
-                  <h4 className="mb-2 font-medium">{scripts.find((s) => s.id === selectedScript)?.title}</h4>
-                  <p className="text-sm text-muted-foreground">
-                    {scripts.find((s) => s.id === selectedScript)?.content}
-                  </p>
-                </div>
-              )}
             </div>
-          )}
+
+            {/* Display selected script */}
+            {selectedScript && (
+              <div className="rounded-md border p-4">
+                <h4 className="mb-2 font-medium">
+                  {safeScripts.find((s) => s.id === selectedScript)?.title || "Selected Script"}
+                </h4>
+                <p className="text-sm text-muted-foreground">
+                  {safeScripts.find((s) => s.id === selectedScript)?.content || "No content available"}
+                </p>
+              </div>
+            )}
+
+            {/* Configuration Selection */}
+            <div className="space-y-2 pt-4">
+              <Label htmlFor="config">Hume Configuration (Optional)</Label>
+              <Select onValueChange={(value) => setSelectedConfig(value === "none" ? null : value)}>
+                <SelectTrigger id="config">
+                  <SelectValue placeholder="Select a configuration" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="none">Default Configuration</SelectItem>
+                  {loadingConfigs ? (
+                    <SelectItem value="loading" disabled>
+                      Loading configurations...
+                    </SelectItem>
+                  ) : configs.length === 0 ? (
+                    <SelectItem value="no-configs" disabled>
+                      No configurations available
+                    </SelectItem>
+                  ) : (
+                    configs
+                      .filter((config) => config.humeConfigId)
+                      .map((config) => (
+                        <SelectItem key={config.id} value={config.humeConfigId}>
+                          {config.name}
+                        </SelectItem>
+                      ))
+                  )}
+                </SelectContent>
+              </Select>
+              <p className="text-xs text-muted-foreground">
+                A configuration determines the voice, language model, and behavior of the AI agent
+              </p>
+            </div>
+          </div>
         </CardContent>
         <CardFooter>
           <Button
