@@ -5,7 +5,7 @@ import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
 import { Slider } from "@/components/ui/slider"
-import { PhoneIcon, PhoneOffIcon, Volume2Icon, VolumeXIcon, AlertCircleIcon, InfoIcon, Loader2Icon } from "lucide-react"
+import { PhoneIcon, PhoneOffIcon, Volume2Icon, VolumeXIcon, AlertCircleIcon, InfoIcon } from "lucide-react"
 import { toast } from "sonner"
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
 
@@ -33,7 +33,6 @@ export function LiveCallListener({ callDetailId, callSid, contactName, onClose }
   const [error, setError] = useState<string | null>(null)
   const [elapsedTime, setElapsedTime] = useState(0)
   const [sdkLoaded, setSdkLoaded] = useState(false)
-  const [sdkLoading, setSdkLoading] = useState(false)
   const [debugInfo, setDebugInfo] = useState<string[]>([])
   const [conferenceName, setConferenceName] = useState<string | null>(null)
   const [audioDetected, setAudioDetected] = useState(false)
@@ -44,9 +43,6 @@ export function LiveCallListener({ callDetailId, callSid, contactName, onClose }
   const timerRef = useRef<NodeJS.Timeout | null>(null)
   const deviceRef = useRef<any>(null)
   const audioLevelTimerRef = useRef<NodeJS.Timeout | null>(null)
-  const sdkLoadAttempts = useRef(0)
-  const sdkLoadingTimeoutRef = useRef<NodeJS.Timeout | null>(null)
-  const sdkScriptRef = useRef<HTMLScriptElement | null>(null)
 
   // Store event handlers in refs to maintain consistent references
   const eventHandlersRef = useRef<{
@@ -90,165 +86,40 @@ export function LiveCallListener({ callDetailId, callSid, contactName, onClose }
     }
   }, [])
 
-  // Clean up any existing SDK loading attempts
-  const cleanupSDKLoading = useCallback(() => {
-    // Clear any pending timeouts
-    if (sdkLoadingTimeoutRef.current) {
-      clearTimeout(sdkLoadingTimeoutRef.current)
-      sdkLoadingTimeoutRef.current = null
-    }
-
-    // Remove any existing script tag we created
-    if (sdkScriptRef.current && document.body.contains(sdkScriptRef.current)) {
-      document.body.removeChild(sdkScriptRef.current)
-      sdkScriptRef.current = null
-    }
-  }, [])
-
-  // Function to load the Twilio Client SDK - completely rewritten to avoid loops
-  const loadTwilioSDK = useCallback(() => {
+  // Load Twilio Client JS SDK - client-side only
+  useEffect(() => {
     // Skip during SSR
     if (typeof window === "undefined") return
 
-    // Don't try to load if already loaded
-    if (window.Twilio) {
-      addDebugInfo("Twilio Client SDK already loaded")
-      setSdkLoaded(true)
-      setSdkLoading(false)
-      return
-    }
-
-    // Don't start a new load if one is in progress
-    if (sdkLoading && sdkScriptRef.current) {
-      addDebugInfo("SDK loading already in progress, not starting another")
-      return
-    }
-
-    // Clean up any existing loading attempts
-    cleanupSDKLoading()
-
-    // Check if we've exceeded max attempts
-    const MAX_ATTEMPTS = 3
-    if (sdkLoadAttempts.current >= MAX_ATTEMPTS) {
-      addDebugInfo(`Exceeded maximum SDK loading attempts (${MAX_ATTEMPTS})`)
-      setSdkLoading(false)
-      setError(`Failed to load Twilio SDK after ${MAX_ATTEMPTS} attempts. Please refresh the page and try again.`)
-      return
-    }
-
-    // Start loading
-    setSdkLoading(true)
-    sdkLoadAttempts.current += 1
-    addDebugInfo(`Loading Twilio Client SDK (attempt ${sdkLoadAttempts.current})...`)
-
-    // Try both CDN URLs to improve reliability
-    const sdkUrls = [
-      "//sdk.twilio.com/js/client/v2.13.0/twilio.min.js",
-      "//media.twiliocdn.com/sdk/js/client/v2.13.0/twilio.min.js",
-    ]
-
-    const scriptUrl = sdkUrls[sdkLoadAttempts.current % sdkUrls.length]
-    addDebugInfo(`Using SDK URL: ${scriptUrl}`)
-
-    // Create the script element
-    const script = document.createElement("script")
-    script.src = scriptUrl
-    script.async = true
-    sdkScriptRef.current = script
-
-    // Set a timeout to detect if script loading is taking too long
-    sdkLoadingTimeoutRef.current = setTimeout(() => {
-      if (!window.Twilio && isMounted.current) {
-        addDebugInfo("SDK loading timeout reached")
-        if (script.parentNode) {
-          script.parentNode.removeChild(script)
-        }
-        sdkScriptRef.current = null
-        setSdkLoading(false)
-
-        // Retry with exponential backoff
-        const backoffDelay = Math.min(2000 * Math.pow(2, sdkLoadAttempts.current - 1), 10000)
-        addDebugInfo(`Will retry in ${backoffDelay}ms...`)
-
-        sdkLoadingTimeoutRef.current = setTimeout(() => {
-          if (isMounted.current && !window.Twilio) {
-            loadTwilioSDK()
-          }
-        }, backoffDelay)
-      }
-    }, 10000)
-
-    // Success handler
-    script.onload = () => {
-      if (sdkLoadingTimeoutRef.current) {
-        clearTimeout(sdkLoadingTimeoutRef.current)
-        sdkLoadingTimeoutRef.current = null
-      }
-
-      if (isMounted.current) {
-        if (window.Twilio) {
+    if (!window.Twilio) {
+      addDebugInfo("Loading Twilio Client SDK...")
+      const script = document.createElement("script")
+      script.src = "//sdk.twilio.com/js/client/releases/1.14.0/twilio.js"
+      script.async = true
+      script.onload = () => {
+        if (isMounted.current) {
           addDebugInfo("Twilio Client SDK loaded successfully")
           setSdkLoaded(true)
-          setSdkLoading(false)
-          sdkLoadAttempts.current = 0 // Reset attempts counter on success
-        } else {
-          addDebugInfo("Script loaded but Twilio object not found")
-          setSdkLoading(false)
-          setError("Script loaded but Twilio object not found. Please refresh the page and try again.")
         }
       }
-    }
-
-    // Error handler
-    script.onerror = () => {
-      if (sdkLoadingTimeoutRef.current) {
-        clearTimeout(sdkLoadingTimeoutRef.current)
-        sdkLoadingTimeoutRef.current = null
-      }
-
-      if (isMounted.current) {
-        addDebugInfo("Failed to load Twilio Client SDK")
-        setSdkLoading(false)
-
-        // Retry with exponential backoff if under max attempts
-        if (sdkLoadAttempts.current < MAX_ATTEMPTS) {
-          const backoffDelay = Math.min(2000 * Math.pow(2, sdkLoadAttempts.current - 1), 10000)
-          addDebugInfo(`Will retry in ${backoffDelay}ms...`)
-
-          sdkLoadingTimeoutRef.current = setTimeout(() => {
-            if (isMounted.current && !window.Twilio) {
-              loadTwilioSDK()
-            }
-          }, backoffDelay)
-        } else {
-          setError("Failed to load Twilio Client SDK after multiple attempts. Please refresh the page and try again.")
+      script.onerror = () => {
+        if (isMounted.current) {
+          addDebugInfo("Failed to load Twilio Client SDK")
+          setError("Failed to load Twilio Client SDK. Please check your internet connection and try again.")
         }
       }
-    }
+      document.body.appendChild(script)
 
-    // Append the script to the document
-    document.body.appendChild(script)
-  }, [addDebugInfo, cleanupSDKLoading, sdkLoading])
-
-  // Load Twilio Client JS SDK - client-side only
-  useEffect(() => {
-    if (typeof window === "undefined") return
-
-    // Check if SDK is already loaded
-    if (window.Twilio) {
-      addDebugInfo("Twilio Client SDK already loaded on mount")
+      return () => {
+        if (document.body.contains(script)) {
+          document.body.removeChild(script)
+        }
+      }
+    } else if (isMounted.current) {
+      addDebugInfo("Twilio Client SDK already loaded")
       setSdkLoaded(true)
-      return
     }
-
-    // Load the SDK
-    loadTwilioSDK()
-
-    // Cleanup function
-    return () => {
-      cleanupSDKLoading()
-    }
-  }, [addDebugInfo, loadTwilioSDK, cleanupSDKLoading])
+  }, [addDebugInfo])
 
   // Initialize timer for connected call - client-side only
   useEffect(() => {
@@ -295,21 +166,18 @@ export function LiveCallListener({ callDetailId, callSid, contactName, onClose }
 
       if (connectionRef.current) {
         try {
-          // Check if connection is active
-          const isActive = connectionRef.current.status() === "open"
+          // Check if status method exists and call it
+          const isOpen =
+            typeof connectionRef.current.status === "function" ? connectionRef.current.status() === "open" : true
 
-          if (isActive) {
-            // Get the current volume levels if available
-            // In Twilio Client 2.x, we can use the getVolume() method
-            let outputVolume = 0
+          if (isOpen) {
+            // Get the current input and output volumes if available
+            const inputVolume =
+              typeof connectionRef.current.inputVolume === "number" ? connectionRef.current.inputVolume : 0
+            const outputVolume =
+              typeof connectionRef.current.outputVolume === "number" ? connectionRef.current.outputVolume : 0
 
-            if (typeof connectionRef.current.getVolume === "function") {
-              outputVolume = connectionRef.current.getVolume()
-              addDebugInfo(`Audio level - Output: ${outputVolume.toFixed(2)}`)
-            } else {
-              // Fallback to checking if we can detect audio through other means
-              addDebugInfo("getVolume method not available, using alternative detection")
-            }
+            addDebugInfo(`Audio levels - Input: ${inputVolume.toFixed(2)}, Output: ${outputVolume.toFixed(2)}`)
 
             // If we detect any output volume, mark audio as detected
             if (outputVolume > 0.01) {
@@ -394,7 +262,7 @@ export function LiveCallListener({ callDetailId, callSid, contactName, onClose }
     }
   }
 
-  // Step 3: Initialize Twilio Device with EventEmitter pattern for v2.x
+  // Step 3: Initialize Twilio Device with EventEmitter pattern
   const initializeTwilioDevice = async (token: string) => {
     try {
       addDebugInfo("Initializing Twilio Device...")
@@ -402,16 +270,14 @@ export function LiveCallListener({ callDetailId, callSid, contactName, onClose }
         throw new Error("Twilio Client SDK not loaded yet")
       }
 
-      // Create a new device - in v2.x, we use Twilio.Device.setup() instead of new Device()
-      const device = window.Twilio.Device.setup(token, {
-        debug: true,
-        // v2.x options
-        enableRingingState: true,
+      // Create a new device
+      const device = new window.Twilio.Device(token, {
         codecPreferences: ["opus", "pcmu"],
         fakeLocalDTMF: true,
-        sounds: {
-          incoming: false, // Disable the incoming ringtone
-          outgoing: false, // Disable the outgoing ringtone
+        enableRingingState: true,
+        debug: true,
+        audioConstraints: {
+          optional: [],
         },
       })
 
@@ -466,7 +332,7 @@ export function LiveCallListener({ callDetailId, callSid, contactName, onClose }
         }, 10000)
 
         // Check if device is already ready
-        if (device.isReady && typeof device.isReady === "function" && device.isReady()) {
+        if (device.state === "ready") {
           addDebugInfo("Device is already ready")
           cleanup()
           resolve(device)
@@ -478,7 +344,7 @@ export function LiveCallListener({ callDetailId, callSid, contactName, onClose }
     }
   }
 
-  // Step 4: Connect to the conference with EventEmitter pattern for v2.x
+  // Step 4: Connect to the conference with EventEmitter pattern
   const connectToConference = async (device: any, confName: string, identity: string) => {
     try {
       addDebugInfo(`Connecting to conference: ${confName}...`)
@@ -492,8 +358,8 @@ export function LiveCallListener({ callDetailId, callSid, contactName, onClose }
       // Log the exact parameters we're sending
       addDebugInfo(`Connection params: ${JSON.stringify(connectionParams)}`)
 
-      // Connect to the conference - in v2.x, we use device.connect() with parameters
-      const connection = device.connect(connectionParams)
+      // Connect to the conference
+      const connection = await device.connect(connectionParams)
       addDebugInfo("Connection initiated")
 
       // Store the connection in the ref
@@ -532,10 +398,14 @@ export function LiveCallListener({ callDetailId, callSid, contactName, onClose }
       // Add event listeners using the EventEmitter pattern
       addConnectionListeners(connection)
 
-      // Set up volume control - in v2.x, we use connection.setVolume()
-      if (typeof connection.setVolume === "function") {
-        connection.setVolume(volume)
-        addDebugInfo(`Set initial volume to ${volume}`)
+      // Set up volume control
+      if (typeof connection.volume === "function") {
+        connection.volume(volume)
+      } else {
+        // Use the EventEmitter pattern for volume if the function is not available
+        connection.on("volume", (vol: number) => {
+          addDebugInfo(`Volume event: ${vol}`)
+        })
       }
 
       return connection
@@ -548,7 +418,6 @@ export function LiveCallListener({ callDetailId, callSid, contactName, onClose }
   // Helper function to add connection event listeners
   const addConnectionListeners = (connection: any) => {
     try {
-      // In v2.x, the event names might be slightly different
       connection.on("accept", eventHandlersRef.current.connection.accept)
       connection.on("disconnect", eventHandlersRef.current.connection.disconnect)
       connection.on("error", eventHandlersRef.current.connection.error)
@@ -578,39 +447,8 @@ export function LiveCallListener({ callDetailId, callSid, contactName, onClose }
       setStatus("Connecting to call...")
       addDebugInfo("Starting connection process...")
 
-      // Check if SDK is loaded, if not try to load it
-      if (!window.Twilio) {
-        if (!sdkLoading) {
-          addDebugInfo("SDK not loaded, attempting to load it now...")
-          await new Promise<void>((resolve) => {
-            loadTwilioSDK()
-            // Wait a bit to see if the SDK loads
-            setTimeout(() => {
-              if (window.Twilio) {
-                addDebugInfo("SDK loaded successfully after retry")
-                setSdkLoaded(true)
-              }
-              resolve()
-            }, 3000)
-          })
-        } else {
-          addDebugInfo("SDK is currently loading, waiting...")
-          await new Promise<void>((resolve) => {
-            // Wait a bit longer for the SDK to load
-            setTimeout(() => {
-              if (window.Twilio) {
-                addDebugInfo("SDK loaded successfully while waiting")
-                setSdkLoaded(true)
-              }
-              resolve()
-            }, 5000)
-          })
-        }
-      }
-
-      // Final check if SDK is loaded
-      if (!window.Twilio) {
-        throw new Error("Twilio Client SDK not loaded yet. Please refresh the page and try again.")
+      if (!sdkLoaded || !window.Twilio) {
+        throw new Error("Twilio Client SDK not loaded yet. Please wait a moment and try again.")
       }
 
       // Step 1: Set up the conference
@@ -647,7 +485,7 @@ export function LiveCallListener({ callDetailId, callSid, contactName, onClose }
         // Remove event listeners before disconnecting
         removeConnectionListeners(connectionRef.current)
 
-        // Disconnect - in v2.x, we use connection.disconnect()
+        // Disconnect
         connectionRef.current.disconnect()
         connectionRef.current = null
       }
@@ -661,7 +499,7 @@ export function LiveCallListener({ callDetailId, callSid, contactName, onClose }
           addDebugInfo(`Error removing device listeners: ${e instanceof Error ? e.message : "Unknown error"}`)
         }
 
-        // Destroy device - in v2.x, we use device.destroy()
+        // Destroy device
         deviceRef.current.destroy()
         deviceRef.current = null
       }
@@ -676,16 +514,20 @@ export function LiveCallListener({ callDetailId, callSid, contactName, onClose }
     }
   }, [addDebugInfo, stopAudioLevelMonitoring])
 
-  // Toggle mute using v2.x methods
+  // Toggle mute using the EventEmitter pattern
   const toggleMute = () => {
     if (connectionRef.current) {
       try {
         const newMuteState = !isMuted
 
-        // In v2.x, we use connection.mute(boolean)
+        // Use the mute method if available
         if (typeof connectionRef.current.mute === "function") {
           connectionRef.current.mute(newMuteState)
-          addDebugInfo(`${newMuteState ? "Muted" : "Unmuted"} connection`)
+          addDebugInfo(`${newMuteState ? "Muted" : "Unmuted"} connection using mute() method`)
+        } else {
+          // Alternatively, emit a mute event
+          connectionRef.current.emit("mute", newMuteState)
+          addDebugInfo(`${newMuteState ? "Muted" : "Unmuted"} connection using emit('mute')`)
         }
 
         setIsMuted(newMuteState)
@@ -695,7 +537,7 @@ export function LiveCallListener({ callDetailId, callSid, contactName, onClose }
     }
   }
 
-  // Handle volume change using v2.x methods
+  // Handle volume change using the EventEmitter pattern
   const handleVolumeChange = (value: number[]) => {
     const newVolume = value[0]
     setVolume(newVolume)
@@ -704,10 +546,14 @@ export function LiveCallListener({ callDetailId, callSid, contactName, onClose }
     // Apply volume to the connection if it exists
     if (connectionRef.current) {
       try {
-        // In v2.x, we use connection.setVolume(volume)
-        if (typeof connectionRef.current.setVolume === "function") {
-          connectionRef.current.setVolume(newVolume)
-          addDebugInfo(`Applied volume ${newVolume}`)
+        // Use the volume method if available
+        if (typeof connectionRef.current.volume === "function") {
+          connectionRef.current.volume(newVolume)
+          addDebugInfo(`Applied volume ${newVolume} using volume() method`)
+        } else {
+          // Alternatively, emit a volume event
+          connectionRef.current.emit("volume", newVolume)
+          addDebugInfo(`Applied volume ${newVolume} using emit('volume')`)
         }
       } catch (error) {
         addDebugInfo(`Error setting volume: ${error instanceof Error ? error.message : "Unknown error"}`)
@@ -719,9 +565,8 @@ export function LiveCallListener({ callDetailId, callSid, contactName, onClose }
   useEffect(() => {
     return () => {
       disconnectCall()
-      cleanupSDKLoading()
     }
-  }, [disconnectCall, cleanupSDKLoading])
+  }, [disconnectCall])
 
   // Retry connection
   const retryConnection = () => {
@@ -730,35 +575,6 @@ export function LiveCallListener({ callDetailId, callSid, contactName, onClose }
     setDebugInfo([])
     setAudioDetected(false)
     connectToCall()
-  }
-
-  // Force reload the SDK
-  const reloadSDK = () => {
-    addDebugInfo("Manually reloading SDK...")
-    setSdkLoaded(false)
-
-    // Clean up any existing loading attempts
-    cleanupSDKLoading()
-
-    // Remove any existing Twilio global objects
-    if (window.Twilio) {
-      addDebugInfo("Removing existing Twilio global object")
-      try {
-        // @ts-ignore
-        delete window.Twilio
-      } catch (e) {
-        addDebugInfo(`Error removing Twilio global: ${e instanceof Error ? e.message : "Unknown error"}`)
-        // Alternative approach if delete fails
-        // @ts-ignore
-        window.Twilio = undefined
-      }
-    }
-
-    // Reset load attempts counter
-    sdkLoadAttempts.current = 0
-
-    // Trigger SDK loading
-    loadTwilioSDK()
   }
 
   // Create a test conference name if one doesn't exist
@@ -866,26 +682,6 @@ export function LiveCallListener({ callDetailId, callSid, contactName, onClose }
             <span className="text-sm">{status}</span>
           </div>
 
-          <div className="flex justify-between">
-            <span className="text-sm font-medium">SDK Status:</span>
-            <span className="text-sm flex items-center">
-              {sdkLoading ? (
-                <>
-                  <Loader2Icon className="h-3 w-3 mr-1 animate-spin" />
-                  Loading...
-                </>
-              ) : sdkLoaded || window.Twilio ? (
-                <Badge variant="success" className="text-xs">
-                  Loaded
-                </Badge>
-              ) : (
-                <Badge variant="destructive" className="text-xs">
-                  Not Loaded
-                </Badge>
-              )}
-            </span>
-          </div>
-
           {contactName && (
             <div className="flex justify-between">
               <span className="text-sm font-medium">Contact:</span>
@@ -927,23 +723,7 @@ export function LiveCallListener({ callDetailId, callSid, contactName, onClose }
                 <AlertCircleIcon className="h-5 w-5 text-red-500 mr-2 mt-0.5" />
                 <div>
                   <p className="text-sm font-medium text-red-800">{error}</p>
-                  <p className="text-xs text-red-700 mt-1">
-                    {error.includes("SDK not loaded") ? (
-                      <>
-                        The Twilio SDK failed to load.
-                        <Button
-                          variant="link"
-                          size="sm"
-                          className="text-xs p-0 h-auto text-red-700 underline"
-                          onClick={reloadSDK}
-                        >
-                          Click here to try reloading it
-                        </Button>
-                      </>
-                    ) : (
-                      "Please check your Twilio configuration and try again."
-                    )}
-                  </p>
+                  <p className="text-xs text-red-700 mt-1">Please check your Twilio configuration and try again.</p>
                 </div>
               </div>
             </div>
@@ -1013,22 +793,9 @@ export function LiveCallListener({ callDetailId, callSid, contactName, onClose }
                 Retry Connection
               </Button>
             ) : (
-              <Button
-                onClick={connectToCall}
-                disabled={isConnecting || (!sdkLoaded && !window.Twilio)}
-                className="w-full"
-              >
-                {isConnecting ? (
-                  <>
-                    <Loader2Icon className="mr-2 h-4 w-4 animate-spin" />
-                    Connecting...
-                  </>
-                ) : (
-                  <>
-                    <PhoneIcon className="mr-2 h-4 w-4" />
-                    Listen to Call
-                  </>
-                )}
+              <Button onClick={connectToCall} disabled={isConnecting || !sdkLoaded} className="w-full">
+                <PhoneIcon className="mr-2 h-4 w-4" />
+                {isConnecting ? "Connecting..." : "Listen to Call"}
               </Button>
             )
           ) : (
@@ -1043,11 +810,11 @@ export function LiveCallListener({ callDetailId, callSid, contactName, onClose }
           <Button variant="outline" size="sm" onClick={onClose} className="flex-1">
             Close
           </Button>
-          <Button variant="outline" size="sm" onClick={reloadSDK} className="flex-1">
-            Reload SDK
-          </Button>
           <Button variant="outline" size="sm" onClick={testDirectTwiML} className="flex-1">
-            Test TwiML
+            Test Form
+          </Button>
+          <Button variant="outline" size="sm" onClick={testDirectTwiMLWithJSON} className="flex-1">
+            Test JSON
           </Button>
         </div>
 
