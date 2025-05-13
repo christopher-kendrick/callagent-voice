@@ -32,12 +32,14 @@ export function LiveCallListener({ callDetailId, callSid, contactName, onClose }
   const [elapsedTime, setElapsedTime] = useState(0)
   const [sdkLoaded, setSdkLoaded] = useState(false)
   const [debugInfo, setDebugInfo] = useState<string[]>([])
+  const [conferenceName, setConferenceName] = useState<string | null>(null)
   const connectionRef = useRef<any>(null)
   const timerRef = useRef<NodeJS.Timeout | null>(null)
   const deviceRef = useRef<any>(null)
 
   const addDebugInfo = (info: string) => {
     setDebugInfo((prev) => [...prev, `${new Date().toISOString().split("T")[1].split(".")[0]}: ${info}`])
+    console.log(`[LiveCallListener] ${info}`)
   }
 
   // Load Twilio Client JS SDK
@@ -93,31 +95,56 @@ export function LiveCallListener({ callDetailId, callSid, contactName, onClose }
     return `${mins}:${secs < 10 ? "0" : ""}${secs}`
   }
 
-  // Connect to the live call
-  const connectToCall = async () => {
+  // Step 1: Set up the conference
+  const setupConference = async () => {
     try {
-      setIsConnecting(true)
-      setError(null)
-      setStatus("Connecting to call...")
-      addDebugInfo("Starting connection process...")
+      addDebugInfo(`Requesting to listen to call ${callDetailId}...`)
+      const response = await fetch(`/api/calls/${callDetailId}/listen`, {
+        method: "POST",
+      })
 
-      if (!sdkLoaded || !window.Twilio) {
-        throw new Error("Twilio Client SDK not loaded yet. Please wait a moment and try again.")
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({ error: "Unknown error" }))
+        throw new Error(errorData.error || `Server returned ${response.status}: ${response.statusText}`)
       }
 
-      // Get a token from our server
+      const data = await response.json()
+      addDebugInfo(`Received conference name: ${data.conferenceName}`)
+      setConferenceName(data.conferenceName)
+      return data.conferenceName
+    } catch (error) {
+      addDebugInfo(`Error setting up conference: ${error instanceof Error ? error.message : "Unknown error"}`)
+      throw error
+    }
+  }
+
+  // Step 2: Get a Twilio token
+  const getTwilioToken = async () => {
+    try {
       addDebugInfo("Requesting Twilio token...")
       const tokenResponse = await fetch("/api/twilio/client-token")
       if (!tokenResponse.ok) {
-        const errorData = await tokenResponse.json()
-        throw new Error(`Failed to get Twilio token: ${errorData.error || tokenResponse.statusText}`)
+        const errorData = await tokenResponse.json().catch(() => ({ error: "Unknown error" }))
+        throw new Error(errorData.error || `Server returned ${tokenResponse.status}: ${tokenResponse.statusText}`)
       }
 
       const { token, identity } = await tokenResponse.json()
       addDebugInfo(`Received token for identity: ${identity}`)
+      return { token, identity }
+    } catch (error) {
+      addDebugInfo(`Error getting token: ${error instanceof Error ? error.message : "Unknown error"}`)
+      throw error
+    }
+  }
 
-      // Initialize Twilio Device with debug enabled
+  // Step 3: Initialize Twilio Device
+  const initializeTwilioDevice = async (token: string) => {
+    try {
       addDebugInfo("Initializing Twilio Device...")
+      if (!window.Twilio) {
+        throw new Error("Twilio Client SDK not loaded yet")
+      }
+
       const device = new window.Twilio.Device(token, {
         codecPreferences: ["opus", "pcmu"],
         fakeLocalDTMF: true,
@@ -130,45 +157,68 @@ export function LiveCallListener({ callDetailId, callSid, contactName, onClose }
         setStatus("Device ready to connect")
       })
 
-      device.on("error", (error: any) => {
-        console.error("Twilio device error:", error)
-        addDebugInfo(`Device error: ${error.message || "Unknown error"}`)
-        setError(`Device error: ${error.message || "Unknown error"}`)
+      device.on("error", (deviceError: any) => {
+        console.error("Twilio device error:", deviceError)
+        addDebugInfo(`Device error: ${deviceError.message || "Unknown error"}`)
+        setError(`Device error: ${deviceError.message || "Unknown error"}`)
         setStatus("Error")
         setIsConnecting(false)
         setIsConnected(false)
       })
 
-      // Store the device in a ref
-      deviceRef.current = device
+      // Wait for device to be ready
+      return new Promise<any>((resolve, reject) => {
+        const readyHandler = () => {
+          device.removeListener("ready", readyHandler)
+          resolve(device)
+        }
 
-      // Request to join the conference
-      addDebugInfo(`Requesting to listen to call ${callDetailId}...`)
-      const response = await fetch(`/api/calls/${callDetailId}/listen`, {
-        method: "POST",
+        const errorHandler = (err: any) => {
+          device.removeListener("error", errorHandler)
+          reject(err)
+        }
+
+        device.on("ready", readyHandler)
+        device.on("error", errorHandler)
+
+        // Also resolve if device is already ready
+        if (device.state === "ready") {
+          resolve(device)
+        }
+
+        // Timeout after 10 seconds
+        setTimeout(() => {
+          device.removeListener("ready", readyHandler)
+          device.removeListener("error", errorHandler)
+          reject(new Error("Timeout waiting for device to be ready"))
+        }, 10000)
       })
+    } catch (error) {
+      addDebugInfo(`Error initializing device: ${error instanceof Error ? error.message : "Unknown error"}`)
+      throw error
+    }
+  }
 
-      if (!response.ok) {
-        const errorData = await response.json()
-        throw new Error(errorData.error || "Failed to initiate live listening")
+  // Step 4: Connect to the conference
+  const connectToConference = async (device: any, confName: string, identity: string) => {
+    try {
+      addDebugInfo(`Connecting to conference: ${confName}...`)
+
+      // Make the connection parameters
+      const connectionParams = {
+        conferenceName: confName,
+        clientIdentity: identity,
+        muted: true,
       }
 
-      const { conferenceName } = await response.json()
-      addDebugInfo(`Received conference name: ${conferenceName}`)
+      addDebugInfo(`Connection params: ${JSON.stringify(connectionParams)}`)
 
       // Connect to the conference
-      addDebugInfo("Connecting to conference...")
-      const connection = await device.connect({
-        params: {
-          conferenceName,
-          clientIdentity: identity,
-          muted: true, // Start muted
-        },
-      })
+      const connection = await device.connect({ params: connectionParams })
 
-      connectionRef.current = connection
       addDebugInfo("Connection initiated")
 
+      // Set up event handlers
       connection.on("accept", () => {
         addDebugInfo("Connection accepted")
         setIsConnected(true)
@@ -184,14 +234,47 @@ export function LiveCallListener({ callDetailId, callSid, contactName, onClose }
         toast.info("Disconnected from call")
       })
 
-      connection.on("error", (error: any) => {
-        console.error("Connection error:", error)
-        addDebugInfo(`Connection error: ${error.message || "Unknown error"}`)
-        setError(`Connection error: ${error.message || "Unknown error"}`)
+      connection.on("error", (connectionError: any) => {
+        console.error("Connection error:", connectionError)
+        addDebugInfo(`Connection error: ${connectionError.message || "Unknown error"}`)
+        setError(`Connection error: ${connectionError.message || "Unknown error"}`)
         setStatus("Error")
         setIsConnected(false)
         setIsConnecting(false)
       })
+
+      return connection
+    } catch (error) {
+      addDebugInfo(`Error connecting to conference: ${error instanceof Error ? error.message : "Unknown error"}`)
+      throw error
+    }
+  }
+
+  // Connect to the live call - main function that orchestrates the process
+  const connectToCall = async () => {
+    try {
+      setIsConnecting(true)
+      setError(null)
+      setStatus("Connecting to call...")
+      addDebugInfo("Starting connection process...")
+
+      if (!sdkLoaded || !window.Twilio) {
+        throw new Error("Twilio Client SDK not loaded yet. Please wait a moment and try again.")
+      }
+
+      // Step 1: Set up the conference
+      const confName = await setupConference()
+
+      // Step 2: Get a Twilio token
+      const { token, identity } = await getTwilioToken()
+
+      // Step 3: Initialize Twilio Device
+      const device = await initializeTwilioDevice(token)
+      deviceRef.current = device
+
+      // Step 4: Connect to the conference
+      const connection = await connectToConference(device, confName, identity)
+      connectionRef.current = connection
     } catch (error) {
       console.error("Error connecting to call:", error)
       addDebugInfo(`Error: ${error instanceof Error ? error.message : "Unknown error"}`)
@@ -264,6 +347,45 @@ export function LiveCallListener({ callDetailId, callSid, contactName, onClose }
     setError(null)
     setDebugInfo([])
     connectToCall()
+  }
+
+  // Test direct TwiML
+  const testDirectTwiML = async () => {
+    try {
+      if (!conferenceName) {
+        throw new Error("No conference name available")
+      }
+
+      addDebugInfo("Testing direct TwiML access...")
+
+      // Make a direct request to the join-conference endpoint
+      const response = await fetch("/api/twilio/join-conference", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          conferenceName,
+          clientIdentity: "test-client",
+        }),
+      })
+
+      if (!response.ok) {
+        const text = await response.text()
+        addDebugInfo(`Direct TwiML test failed: ${response.status} ${response.statusText}`)
+        addDebugInfo(`Response: ${text}`)
+        throw new Error(`Failed to access TwiML: ${response.status} ${response.statusText}`)
+      }
+
+      const twiml = await response.text()
+      addDebugInfo("Direct TwiML test successful")
+      addDebugInfo(`TwiML: ${twiml.substring(0, 100)}...`)
+
+      toast.success("TwiML endpoint is accessible")
+    } catch (error) {
+      addDebugInfo(`TwiML test error: ${error instanceof Error ? error.message : "Unknown error"}`)
+      toast.error(`TwiML test failed: ${error instanceof Error ? error.message : "Unknown error"}`)
+    }
   }
 
   return (
@@ -356,13 +478,18 @@ export function LiveCallListener({ callDetailId, callSid, contactName, onClose }
           )}
         </div>
 
-        <Button variant="outline" size="sm" onClick={onClose} className="w-full mt-2">
-          Close
-        </Button>
+        <div className="flex gap-2">
+          <Button variant="outline" size="sm" onClick={onClose} className="flex-1">
+            Close
+          </Button>
+          <Button variant="outline" size="sm" onClick={testDirectTwiML} className="flex-1">
+            Test TwiML
+          </Button>
+        </div>
 
         {/* Debug Information (collapsible) */}
         <div className="mt-4">
-          <details className="text-xs">
+          <details className="text-xs" open>
             <summary className="cursor-pointer text-gray-500 hover:text-gray-700">Debug Information</summary>
             <div className="mt-2 p-2 bg-gray-50 rounded-md max-h-32 overflow-y-auto">
               <pre className="whitespace-pre-wrap break-words">

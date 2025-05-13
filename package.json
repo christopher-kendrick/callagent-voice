@@ -95,6 +95,7 @@
     "tailwind-merge": "^2.5.5",
     "tailwindcss-animate": "^1.0.7",
     "twilio": "latest",
+    "uuid": "latest",
     "vaul": "^0.9.6",
     "zod": "latest"
   },

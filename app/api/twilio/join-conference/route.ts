@@ -1,18 +1,23 @@
 import { type NextRequest, NextResponse } from "next/server"
-import { getServerSession } from "next-auth"
-import { authOptions } from "@/auth"
+
+// Get Twilio credentials from environment variables
+const accountSid = process.env.TWILIO_ACCOUNT_SID
+const authToken = process.env.TWILIO_AUTH_TOKEN
 
 export async function POST(request: NextRequest) {
   try {
-    // Check authentication
-    const session = await getServerSession(authOptions)
-    if (!session?.user?.id) {
-      return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
+    // Basic validation of Twilio credentials
+    if (!accountSid || !authToken) {
+      console.error("Missing Twilio credentials")
+      return NextResponse.json({ error: "Server configuration error: Missing Twilio credentials" }, { status: 500 })
     }
 
-    const { conferenceName, clientIdentity } = await request.json()
+    // Parse the request body
+    const body = await request.json().catch(() => ({}))
+    const { conferenceName, clientIdentity } = body
 
     if (!conferenceName) {
+      console.error("Missing conference name in request")
       return NextResponse.json({ error: "Conference name is required" }, { status: 400 })
     }
 

@@ -1,68 +1,50 @@
 import { type NextRequest, NextResponse } from "next/server"
-import { getServerSession } from "next-auth"
-import { authOptions } from "@/auth"
 import twilio from "twilio"
+import { v4 as uuidv4 } from "uuid"
+
+// Get Twilio credentials from environment variables
+const accountSid = process.env.TWILIO_ACCOUNT_SID
+const authToken = process.env.TWILIO_AUTH_TOKEN
+const twimlAppSid = process.env.TWILIO_TWIML_APP_SID
 
 export async function GET(request: NextRequest) {
   try {
-    // Check authentication
-    const session = await getServerSession(authOptions)
-    if (!session?.user?.id) {
-      return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
+    // Basic validation of Twilio credentials
+    if (!accountSid || !authToken || !twimlAppSid) {
+      console.error("Missing Twilio credentials or TwiML App SID")
+      return NextResponse.json(
+        { error: "Server configuration error: Missing Twilio credentials or TwiML App SID" },
+        { status: 500 },
+      )
     }
 
-    // Get the identity from the query params (or use user ID)
-    const identity = request.nextUrl.searchParams.get("identity") || `user_${session.user.id}`
+    // Create a unique identity for this client
+    const identity = `listener-${uuidv4()}`
 
-    // Log the token generation attempt
-    console.log(`Generating Twilio Client token for identity: ${identity}`)
+    // Create a capability token
+    const AccessToken = twilio.jwt.AccessToken
+    const VoiceGrant = AccessToken.VoiceGrant
 
-    // Validate Twilio credentials are available
-    if (!process.env.TWILIO_ACCOUNT_SID || !process.env.TWILIO_AUTH_TOKEN) {
-      console.error("Missing Twilio credentials")
-      return NextResponse.json({ error: "Missing Twilio credentials" }, { status: 500 })
-    }
-
-    if (!process.env.TWILIO_TWIML_APP_SID) {
-      console.error("Missing TWILIO_TWIML_APP_SID")
-      return NextResponse.json({ error: "Missing TWILIO_TWIML_APP_SID" }, { status: 500 })
-    }
-
-    // Generate client-side capability token
-    const ClientCapability = twilio.jwt.ClientCapability
-    const capability = new ClientCapability({
-      accountSid: process.env.TWILIO_ACCOUNT_SID,
-      authToken: process.env.TWILIO_AUTH_TOKEN,
-      ttl: 3600, // 1 hour
+    // Create a Voice grant for this token
+    const voiceGrant = new VoiceGrant({
+      outgoingApplicationSid: twimlAppSid,
+      incomingAllow: true,
     })
 
-    // Allow the client to listen to incoming calls
-    capability.addScope(new ClientCapability.IncomingClientScope(identity))
-
-    // Allow the client to make outgoing calls
-    capability.addScope(
-      new ClientCapability.OutgoingClientScope({
-        applicationSid: process.env.TWILIO_TWIML_APP_SID,
-        clientName: identity,
-      }),
-    )
+    // Create an access token which we will sign and return to the client
+    const token = new AccessToken(accountSid, authToken, identity)
+    token.addGrant(voiceGrant)
 
     // Generate the token
-    const token = capability.toJwt()
+    const tokenString = token.toJwt()
 
-    console.log(`Successfully generated token for ${identity}`)
+    console.log(`Generated token for identity: ${identity}`)
 
-    return NextResponse.json({
-      token,
-      identity,
-    })
+    return NextResponse.json({ token: tokenString, identity })
   } catch (error) {
-    console.error("Error generating Twilio client token:", error)
+    console.error("Error generating token:", error)
     return NextResponse.json(
-      {
-        error: error instanceof Error ? error.message : "Unknown error",
-        details: error instanceof Error ? error.stack : undefined,
-      },
+      { error: `Failed to generate token: ${error instanceof Error ? error.message : "Unknown error"}` },
       { status: 500 },
     )
   }

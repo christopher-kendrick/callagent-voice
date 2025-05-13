@@ -1,80 +1,54 @@
 import { type NextRequest, NextResponse } from "next/server"
 import { getServerSession } from "next-auth"
 import { authOptions } from "@/auth"
-import { db } from "@/lib/db"
-import twilioService from "@/lib/services/twilio"
+import { neon } from "@neondatabase/serverless"
+import { v4 as uuidv4 } from "uuid"
+
+const sql = neon(process.env.DATABASE_URL!)
 
 export async function POST(request: NextRequest, { params }: { params: { id: string } }) {
   try {
     // Check authentication
     const session = await getServerSession(authOptions)
     if (!session?.user?.id) {
+      console.error("Unauthorized access attempt to listen to call")
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
     }
 
-    const callId = Number.parseInt(params.id)
-    if (isNaN(callId)) {
+    const callDetailId = Number.parseInt(params.id)
+    if (isNaN(callDetailId)) {
       return NextResponse.json({ error: "Invalid call ID" }, { status: 400 })
     }
 
-    // Get the call details from the database
-    const call = await db.query.callDetails.findFirst({
-      where: (fields, { eq }) => eq(fields.id, callId),
-    })
+    // Get call details from database
+    const callDetails = await sql`
+      SELECT id, call_sid, status, contact_name
+      FROM call_details
+      WHERE id = ${callDetailId}
+    `
 
-    if (!call) {
+    if (!callDetails || callDetails.length === 0) {
       return NextResponse.json({ error: "Call not found" }, { status: 404 })
     }
 
-    // Check if the call has a Twilio SID
-    if (!call.twilioSid) {
-      return NextResponse.json({ error: "Call has no Twilio SID" }, { status: 400 })
-    }
+    const call = callDetails[0]
 
-    // Check if the call is in progress
-    if (call.status !== "in-progress" && call.status !== "ringing" && call.status !== "queued") {
-      return NextResponse.json(
-        {
-          error: "Call is not in progress",
-          status: call.status,
-        },
-        { status: 400 },
-      )
-    }
+    // Generate a unique conference name based on the call SID
+    const conferenceName = `listen_${call.call_sid}_${uuidv4().substring(0, 8)}`
 
-    // Generate a unique conference name based on the call ID
-    const conferenceName = `call_${callId}_${Date.now()}`
+    console.log(`Setting up conference ${conferenceName} for call ${call.call_sid}`)
 
-    console.log(`Setting up conference for call ${callId} with SID ${call.twilioSid}`)
-
-    // Update the call to join the conference
-    const result = await twilioService.updateCallToJoinConference(call.twilioSid, conferenceName)
-
-    if (!result.success) {
-      return NextResponse.json(
-        {
-          error: "Failed to update call to join conference",
-          details: result.error,
-        },
-        { status: 500 },
-      )
-    }
-
-    console.log(`Successfully set up conference: ${conferenceName}`)
-
-    // Return the conference name
+    // Return the conference name to the client
     return NextResponse.json({
-      success: true,
       conferenceName,
-      callSid: call.twilioSid,
+      callSid: call.call_sid,
+      status: call.status,
+      contactName: call.contact_name,
     })
   } catch (error) {
     console.error("Error setting up call listening:", error)
     return NextResponse.json(
-      {
-        error: error instanceof Error ? error.message : "Unknown error",
-        stack: error instanceof Error ? error.stack : undefined,
-      },
+      { error: `Failed to set up call listening: ${error instanceof Error ? error.message : "Unknown error"}` },
       { status: 500 },
     )
   }
