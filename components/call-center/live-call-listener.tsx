@@ -380,13 +380,17 @@ export function LiveCallListener({ callDetailId, callSid, contactName, onClose }
 
       addDebugInfo(`Testing direct TwiML access with conference: ${testConfName}`)
 
-      // Make a direct request to the join-conference endpoint using URL parameters
-      const url = `/api/twilio/join-conference?conferenceName=${encodeURIComponent(testConfName)}`
+      // Create a FormData object for the request
+      const formData = new FormData()
+      formData.append("conferenceName", testConfName)
+      formData.append("clientIdentity", "test-client")
 
-      addDebugInfo(`Sending request to: ${url}`)
+      addDebugInfo(`Form data created with conferenceName=${testConfName}`)
 
-      const response = await fetch(url, {
+      // Make a direct request to the join-conference endpoint using form data
+      const response = await fetch("/api/twilio/join-conference", {
         method: "POST",
+        body: formData,
       })
 
       if (!response.ok) {
@@ -404,6 +408,44 @@ export function LiveCallListener({ callDetailId, callSid, contactName, onClose }
     } catch (error) {
       addDebugInfo(`TwiML test error: ${error instanceof Error ? error.message : "Unknown error"}`)
       toast.error(`TwiML test failed: ${error instanceof Error ? error.message : "Unknown error"}`)
+    }
+  }
+
+  // Test direct TwiML with JSON
+  const testDirectTwiMLWithJSON = async () => {
+    try {
+      // Get a conference name (either existing or generated)
+      const testConfName = getTestConferenceName()
+
+      addDebugInfo(`Testing direct TwiML access with JSON: ${testConfName}`)
+
+      // Make a direct request to the join-conference endpoint using JSON
+      const response = await fetch("/api/twilio/join-conference", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          conferenceName: testConfName,
+          clientIdentity: "test-client",
+        }),
+      })
+
+      if (!response.ok) {
+        const text = await response.text()
+        addDebugInfo(`Direct TwiML test with JSON failed: ${response.status} ${response.statusText}`)
+        addDebugInfo(`Response: ${text}`)
+        throw new Error(`Failed to access TwiML: ${response.status} ${response.statusText}`)
+      }
+
+      const twiml = await response.text()
+      addDebugInfo("Direct TwiML test with JSON successful")
+      addDebugInfo(`TwiML: ${twiml.substring(0, 100)}...`)
+
+      toast.success("TwiML endpoint is accessible with JSON")
+    } catch (error) {
+      addDebugInfo(`TwiML test with JSON error: ${error instanceof Error ? error.message : "Unknown error"}`)
+      toast.error(`TwiML test with JSON failed: ${error instanceof Error ? error.message : "Unknown error"}`)
     }
   }
 
@@ -509,7 +551,10 @@ export function LiveCallListener({ callDetailId, callSid, contactName, onClose }
             Close
           </Button>
           <Button variant="outline" size="sm" onClick={testDirectTwiML} className="flex-1">
-            Test TwiML
+            Test Form
+          </Button>
+          <Button variant="outline" size="sm" onClick={testDirectTwiMLWithJSON} className="flex-1">
+            Test JSON
           </Button>
         </div>
 
