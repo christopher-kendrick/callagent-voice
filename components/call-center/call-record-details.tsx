@@ -2,7 +2,7 @@
 
 import type React from "react"
 
-import { useState, useRef, useEffect } from "react"
+import { useState, useEffect, useRef } from "react"
 import { useRouter } from "next/navigation"
 import {
   ArrowLeftIcon,
@@ -45,8 +45,17 @@ function AudioPlayer({ recordingUrl, recordingSid, className }: AudioPlayerProps
   const [isLoading, setIsLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [proxyUrl, setProxyUrl] = useState<string | null>(null)
+  const [isMounted, setIsMounted] = useState(false)
+
+  // Set mounted state on client-side only
+  useEffect(() => {
+    setIsMounted(true)
+  }, [])
 
   useEffect(() => {
+    // Skip during SSR
+    if (!isMounted) return
+
     // Use the recording SID directly
     if (recordingSid) {
       setProxyUrl(`/api/recordings/${recordingSid}`)
@@ -63,7 +72,7 @@ function AudioPlayer({ recordingUrl, recordingSid, className }: AudioPlayerProps
         setIsLoading(false)
       }
     }
-  }, [recordingUrl, recordingSid])
+  }, [recordingUrl, recordingSid, isMounted])
 
   const togglePlay = () => {
     if (audioRef.current) {
@@ -165,6 +174,10 @@ function AudioPlayer({ recordingUrl, recordingSid, className }: AudioPlayerProps
     return `${minutes}:${seconds < 10 ? "0" : ""}${seconds}`
   }
 
+  if (!isMounted) {
+    return <div className="text-sm text-muted-foreground">Loading audio player...</div>
+  }
+
   if (isLoading) {
     return <div className="text-sm text-muted-foreground">Loading recording...</div>
   }
@@ -246,6 +259,12 @@ export function CallRecordDetails({ callRecord }: CallRecordDetailsProps) {
   const [activeRecording, setActiveRecording] = useState<string | null>(null)
   const [liveListeningOpen, setLiveListeningOpen] = useState(false)
   const [selectedCallDetail, setSelectedCallDetail] = useState<any>(null)
+  const [isMounted, setIsMounted] = useState(false)
+
+  // Set mounted state on client-side only
+  useEffect(() => {
+    setIsMounted(true)
+  }, [])
 
   const handleRefresh = async () => {
     setRefreshing(true)
@@ -399,7 +418,7 @@ export function CallRecordDetails({ callRecord }: CallRecordDetailsProps) {
                         <TableCell>
                           <div className="space-y-2">
                             {/* Live listening button for in-progress calls */}
-                            {isCallInProgress(detail.status) && detail.twilioSid && (
+                            {isMounted && isCallInProgress(detail.status) && detail.twilioSid && (
                               <Button
                                 variant="outline"
                                 size="sm"
@@ -412,7 +431,7 @@ export function CallRecordDetails({ callRecord }: CallRecordDetailsProps) {
                             )}
 
                             {/* Recording playback for completed calls */}
-                            {detail.recordingUrl && (
+                            {isMounted && detail.recordingUrl && (
                               <div>
                                 <Button
                                   variant="link"
@@ -449,18 +468,20 @@ export function CallRecordDetails({ callRecord }: CallRecordDetailsProps) {
       </Card>
 
       {/* Live Call Listening Dialog */}
-      <Dialog open={liveListeningOpen} onOpenChange={setLiveListeningOpen}>
-        <DialogContent className="sm:max-w-md">
-          {selectedCallDetail && (
-            <LiveCallListener
-              callDetailId={selectedCallDetail.id}
-              callSid={selectedCallDetail.twilioSid}
-              contactName={selectedCallDetail.contact?.name}
-              onClose={() => setLiveListeningOpen(false)}
-            />
-          )}
-        </DialogContent>
-      </Dialog>
+      {isMounted && (
+        <Dialog open={liveListeningOpen} onOpenChange={setLiveListeningOpen}>
+          <DialogContent className="sm:max-w-md">
+            {selectedCallDetail && (
+              <LiveCallListener
+                callDetailId={selectedCallDetail.id}
+                callSid={selectedCallDetail.twilioSid}
+                contactName={selectedCallDetail.contact?.name}
+                onClose={() => setLiveListeningOpen(false)}
+              />
+            )}
+          </DialogContent>
+        </Dialog>
+      )}
     </div>
   )
 }

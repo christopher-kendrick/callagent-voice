@@ -24,6 +24,7 @@ declare global {
 }
 
 export function LiveCallListener({ callDetailId, callSid, contactName, onClose }: LiveCallListenerProps) {
+  // Client-side only state
   const [isConnecting, setIsConnecting] = useState(false)
   const [isConnected, setIsConnected] = useState(false)
   const [isMuted, setIsMuted] = useState(false)
@@ -36,45 +37,72 @@ export function LiveCallListener({ callDetailId, callSid, contactName, onClose }
   const [conferenceName, setConferenceName] = useState<string | null>(null)
   const [audioDetected, setAudioDetected] = useState(false)
   const [showTroubleshooting, setShowTroubleshooting] = useState(false)
+
+  // Use refs for values that shouldn't trigger re-renders
   const connectionRef = useRef<any>(null)
   const timerRef = useRef<NodeJS.Timeout | null>(null)
   const deviceRef = useRef<any>(null)
   const audioLevelTimerRef = useRef<NodeJS.Timeout | null>(null)
 
+  // Use a ref to track if component is mounted (client-side only)
+  const isMounted = useRef(false)
+
   // Helper function to add debug info
   const addDebugInfo = useCallback((info: string) => {
+    if (!isMounted.current) return
+
     setDebugInfo((prev) => [...prev, `${new Date().toISOString().split("T")[1].split(".")[0]}: ${info}`])
     console.log(`[LiveCallListener] ${info}`)
   }, [])
 
-  // Load Twilio Client JS SDK
+  // Set mounted flag on client-side only
   useEffect(() => {
-    if (typeof window !== "undefined" && !window.Twilio) {
+    isMounted.current = true
+    return () => {
+      isMounted.current = false
+    }
+  }, [])
+
+  // Load Twilio Client JS SDK - client-side only
+  useEffect(() => {
+    // Skip during SSR
+    if (typeof window === "undefined") return
+
+    if (!window.Twilio) {
       addDebugInfo("Loading Twilio Client SDK...")
       const script = document.createElement("script")
       script.src = "//sdk.twilio.com/js/client/releases/1.14.0/twilio.js"
       script.async = true
       script.onload = () => {
-        addDebugInfo("Twilio Client SDK loaded successfully")
-        setSdkLoaded(true)
+        if (isMounted.current) {
+          addDebugInfo("Twilio Client SDK loaded successfully")
+          setSdkLoaded(true)
+        }
       }
       script.onerror = () => {
-        addDebugInfo("Failed to load Twilio Client SDK")
-        setError("Failed to load Twilio Client SDK. Please check your internet connection and try again.")
+        if (isMounted.current) {
+          addDebugInfo("Failed to load Twilio Client SDK")
+          setError("Failed to load Twilio Client SDK. Please check your internet connection and try again.")
+        }
       }
       document.body.appendChild(script)
 
       return () => {
-        document.body.removeChild(script)
+        if (document.body.contains(script)) {
+          document.body.removeChild(script)
+        }
       }
-    } else if (window.Twilio) {
+    } else if (isMounted.current) {
       addDebugInfo("Twilio Client SDK already loaded")
       setSdkLoaded(true)
     }
   }, [addDebugInfo])
 
-  // Initialize timer for connected call
+  // Initialize timer for connected call - client-side only
   useEffect(() => {
+    // Skip during SSR
+    if (typeof window === "undefined") return
+
     if (isConnected) {
       timerRef.current = setInterval(() => {
         setElapsedTime((prev) => prev + 1)
@@ -100,14 +128,19 @@ export function LiveCallListener({ callDetailId, callSid, contactName, onClose }
     return `${mins}:${secs < 10 ? "0" : ""}${secs}`
   }
 
-  // Monitor audio levels to detect if audio is being received
+  // Monitor audio levels to detect if audio is being received - client-side only
   const startAudioLevelMonitoring = useCallback(() => {
+    // Skip during SSR
+    if (typeof window === "undefined") return
+
     if (audioLevelTimerRef.current) {
       clearInterval(audioLevelTimerRef.current)
     }
 
     let silentSeconds = 0
     audioLevelTimerRef.current = setInterval(() => {
+      if (!isMounted.current) return
+
       if (connectionRef.current) {
         try {
           // Check if status method exists and call it
@@ -145,6 +178,8 @@ export function LiveCallListener({ callDetailId, callSid, contactName, onClose }
 
   // Stop monitoring audio levels
   const stopAudioLevelMonitoring = useCallback(() => {
+    if (typeof window === "undefined") return
+
     if (audioLevelTimerRef.current) {
       clearInterval(audioLevelTimerRef.current)
       audioLevelTimerRef.current = null
@@ -757,7 +792,7 @@ export function LiveCallListener({ callDetailId, callSid, contactName, onClose }
 
         {/* Debug Information (collapsible) */}
         <div className="mt-4">
-          <details className="text-xs" open>
+          <details className="text-xs">
             <summary className="cursor-pointer text-gray-500 hover:text-gray-700">Debug Information</summary>
             <div className="mt-2 p-2 bg-gray-50 rounded-md max-h-32 overflow-y-auto">
               <pre className="whitespace-pre-wrap break-words">
