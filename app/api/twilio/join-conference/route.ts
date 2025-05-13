@@ -124,7 +124,7 @@ export async function POST(request: NextRequest) {
       waitUrl=""
       startConferenceOnEnter="true" 
       endConferenceOnExit="false"
-      muted="${muted}"
+      muted="false"
     >
       ${conferenceName}
     </Conference>
