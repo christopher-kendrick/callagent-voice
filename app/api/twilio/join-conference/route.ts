@@ -108,7 +108,19 @@ export async function POST(request: NextRequest) {
     // Generate TwiML for joining a conference without any leading whitespace or newlines
     // IMPORTANT: We're setting startConferenceOnEnter to true to ensure the conference starts
     // and we're NOT setting the muted attribute to ensure we can hear audio
-    const twiml = `<?xml version="1.0" encoding="UTF-8"?><Response><Dial><Conference waitUrl="" startConferenceOnEnter="true" endConferenceOnExit="false">${conferenceName}</Conference></Dial></Response>`
+    const twiml = `<?xml version="1.0" encoding="UTF-8"?>
+<Response>
+  <Dial>
+    <Conference 
+      waitUrl=""
+      startConferenceOnEnter="true" 
+      endConferenceOnExit="false"
+      muted="${muted}"
+    >
+      ${conferenceName}
+    </Conference>
+  </Dial>
+</Response>`
 
     console.log("Generated TwiML successfully")
 
