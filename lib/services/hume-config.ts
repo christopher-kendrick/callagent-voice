@@ -102,19 +102,19 @@ export const humeConfigService = {
     }
   },
 
-  // Update a config - Fixed to use the correct method
+  // Update a config - Updated to use createConfigVersion
   updateConfig: async (params: UpdateConfigParams) => {
     try {
       const client = getHumeClient()
 
-      // Prepare the config object
-      const configData = {
-        name: params.name,
+      // Prepare the config version object
+      const configVersionData = {
+        versionDescription: `Updated version of ${params.name}`,
+        eviVersion: params.eviVersion || "2",
         prompt: {
           id: params.promptId,
           version: params.promptVersion || 0,
         },
-        eviVersion: params.eviVersion || "2",
         voice: {
           provider: params.voiceProvider || "HUME_AI",
           name: params.voiceName,
@@ -123,6 +123,9 @@ export const humeConfigService = {
           modelProvider: params.modelProvider || "ANTHROPIC",
           modelResource: params.modelResource || "claude-3-7-sonnet-latest",
           temperature: params.temperature || 1,
+        },
+        ellmModel: {
+          allowShortResponses: true,
         },
         eventMessages: {
           onNewChat: {
@@ -140,16 +143,16 @@ export const humeConfigService = {
         },
       }
 
-      // First, delete the existing config
-      await client.empathicVoice.configs.deleteConfig(params.humeConfigId)
-
-      // Then create a new config with the same ID
-      const response = await client.empathicVoice.configs.createConfig(configData)
+      // Create a new version of the config
+      const response = await client.empathicVoice.configs.createConfigVersion(params.humeConfigId, configVersionData)
 
       return {
         success: true,
-        configId: response.id,
-        config: configData,
+        configId: params.humeConfigId,
+        config: {
+          name: params.name,
+          ...configVersionData,
+        },
       }
     } catch (error) {
       console.error("Error updating Hume config:", error)

@@ -16,7 +16,7 @@ importers:
         version: 3.808.0
       '@cloudflare/workers-types':
         specifier: latest
-        version: 4.20250510.0
+        version: 4.20250513.0
       '@dnd-kit/core':
         specifier: latest
         version: 6.3.1(react-dom@19.0.0(react@19.0.0))(react@19.0.0)
@@ -184,7 +184,7 @@ importers:
         version: 4.1.0
       drizzle-orm:
         specifier: latest
-        version: 0.43.1(63f2635d83e0e33170aba9aa8b2ce27b)
+        version: 0.43.1(2830df68dac5efff45f9a68a9192b5d1)
       embla-carousel-react:
         specifier: 8.5.1
         version: 8.5.1(react@19.0.0)
@@ -916,8 +916,8 @@ packages:
     resolution: {integrity: sha512-+EzkxvLNfiUeKMgy/3luqfsCWFRXLb7U6wNQTk60tovuckwB15B191tJWvpp4HjiQWdJkCxO3Wbvc6jlk3Xb2Q==}
     engines: {node: '>=6.9.0'}
 
-  '@cloudflare/workers-types@4.20250510.0':
-    resolution: {integrity: sha512-VLdSYUooX2QhdlzyBnnLAqa5B3xWyr5vdvya9NZk2BJNmRt2iblSLunj7iBKiW9J+SIBHz7c+kUzUJKoFLKRjg==}
+  '@cloudflare/workers-types@4.20250513.0':
+    resolution: {integrity: sha512-TXaQyWLqhxEmi/DHx+VSaHZ4DHF/uJCPVv/hRyC7M/eWBo/I7mBtAkUEsrhqcKKO9oCeeRUHUHoeRLh5Gd96Gg==}
 
   '@dnd-kit/accessibility@3.1.1':
     resolution: {integrity: sha512-2P+YgaXF+gRsIihwwY1gCsQSYnu9Zyj2py8kY5fFvUM1qm2WA2u639R6YNVfU4GWr+ZM5mqEsfHZZLoRONbemw==}
@@ -6551,7 +6551,7 @@ snapshots:
       '@babel/helper-string-parser': 7.27.1
       '@babel/helper-validator-identifier': 7.27.1
 
-  '@cloudflare/workers-types@4.20250510.0': {}
+  '@cloudflare/workers-types@4.20250513.0': {}
 
   '@dnd-kit/accessibility@3.1.1(react@19.0.0)':
     dependencies:
@@ -9113,10 +9113,10 @@ snapshots:
 
   dotenv@16.4.7: {}
 
-  drizzle-orm@0.43.1(63f2635d83e0e33170aba9aa8b2ce27b):
+  drizzle-orm@0.43.1(2830df68dac5efff45f9a68a9192b5d1):
     optionalDependencies:
       '@aws-sdk/client-rds-data': 3.808.0
-      '@cloudflare/workers-types': 4.20250510.0
+      '@cloudflare/workers-types': 4.20250513.0
       '@electric-sql/pglite': 0.3.1
       '@libsql/client': 0.15.5(bufferutil@4.0.9)
       '@libsql/client-wasm': 0.15.5
