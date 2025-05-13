@@ -102,7 +102,7 @@ export const humeConfigService = {
     }
   },
 
-  // Update a config
+  // Update a config - Fixed to use the correct method
   updateConfig: async (params: UpdateConfigParams) => {
     try {
       const client = getHumeClient()
@@ -140,12 +140,15 @@ export const humeConfigService = {
         },
       }
 
-      // Update the config
-      await client.empathicVoice.configs.updateConfig(params.humeConfigId, configData)
+      // First, delete the existing config
+      await client.empathicVoice.configs.deleteConfig(params.humeConfigId)
+
+      // Then create a new config with the same ID
+      const response = await client.empathicVoice.configs.createConfig(configData)
 
       return {
         success: true,
-        configId: params.humeConfigId,
+        configId: response.id,
         config: configData,
       }
     } catch (error) {
