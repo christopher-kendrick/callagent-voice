@@ -126,6 +126,8 @@ export async function POST(request: Request) {
         recordingEnabled: true,
       })
 
+      console.log(twilioResponse)
+
       if (!twilioResponse.success) {
         // Update call detail status to failed
         await db
