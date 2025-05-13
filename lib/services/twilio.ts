@@ -3,7 +3,14 @@ import twilio from "twilio"
 // Initialize Twilio client
 const accountSid = process.env.TWILIO_ACCOUNT_SID
 const authToken = process.env.TWILIO_AUTH_TOKEN
-const client = twilio(accountSid, authToken)
+
+// Validate Twilio credentials
+if (!accountSid || !authToken) {
+  console.warn("Missing Twilio credentials. Some features may not work correctly.")
+}
+
+// Create client only if credentials are available
+const client = accountSid && authToken ? twilio(accountSid, authToken) : null
 
 interface InitiateCallParams {
   to: string
@@ -24,6 +31,10 @@ interface JoinConferenceParams {
 const twilioService = {
   initiateCall: async (params: InitiateCallParams) => {
     try {
+      if (!client) {
+        throw new Error("Twilio client not initialized. Check your credentials.")
+      }
+
       // Construct the Hume AI webhook URL with config_id
       const humeWebhookUrl = `https://api.hume.ai/v0/evi/twilio?config_id=${params.humeConfigId}&api_key=${params.humeApiKey}`
 
@@ -59,11 +70,17 @@ const twilioService = {
   // Join a conference call
   joinConference: async (params: JoinConferenceParams) => {
     try {
+      if (!client) {
+        throw new Error("Twilio client not initialized. Check your credentials.")
+      }
+
+      console.log(`Creating call to join conference: ${params.conferenceName}`)
+
       // Create TwiML for joining a conference
       const twiml = `
         <Response>
           <Dial>
-            <Conference startConferenceOnEnter="false" endConferenceOnExit="false" muted="${params.muted ? "true" : "false"}">
+            <Conference waitUrl="" startConferenceOnEnter="false" endConferenceOnExit="false" muted="${params.muted ? "true" : "false"}">
               ${params.conferenceName}
             </Conference>
           </Dial>
@@ -77,6 +94,8 @@ const twilioService = {
         twiml: twiml,
       })
 
+      console.log(`Successfully created call to join conference: ${call.sid}`)
+
       return {
         success: true,
         sid: call.sid,
@@ -87,6 +106,7 @@ const twilioService = {
       return {
         success: false,
         error: error instanceof Error ? error.message : "Unknown error",
+        details: error instanceof Error ? error.stack : undefined,
       }
     }
   },
@@ -94,18 +114,26 @@ const twilioService = {
   // Update an existing call to join a conference
   updateCallToJoinConference: async (callSid: string, conferenceName: string) => {
     try {
+      if (!client) {
+        throw new Error("Twilio client not initialized. Check your credentials.")
+      }
+
+      console.log(`Updating call ${callSid} to join conference ${conferenceName}`)
+
       // Update the call with TwiML to join a conference
       const call = await client.calls(callSid).update({
         twiml: `
           <Response>
             <Dial>
-              <Conference startConferenceOnEnter="true" endConferenceOnExit="false">
+              <Conference waitUrl="" startConferenceOnEnter="true" endConferenceOnExit="false">
                 ${conferenceName}
               </Conference>
             </Dial>
           </Response>
         `,
       })
+
+      console.log(`Successfully updated call to join conference: ${call.status}`)
 
       return {
         success: true,
@@ -114,6 +142,30 @@ const twilioService = {
       }
     } catch (error) {
       console.error("Error updating call to join conference:", error)
+      return {
+        success: false,
+        error: error instanceof Error ? error.message : "Unknown error",
+        details: error instanceof Error ? error.stack : undefined,
+      }
+    }
+  },
+
+  // Get call status
+  getCallStatus: async (callSid: string) => {
+    try {
+      if (!client) {
+        throw new Error("Twilio client not initialized. Check your credentials.")
+      }
+
+      const call = await client.calls(callSid).fetch()
+
+      return {
+        success: true,
+        status: call.status,
+        duration: call.duration,
+      }
+    } catch (error) {
+      console.error("Error getting call status:", error)
       return {
         success: false,
         error: error instanceof Error ? error.message : "Unknown error",

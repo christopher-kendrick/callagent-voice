@@ -2,9 +2,7 @@ import { type NextRequest, NextResponse } from "next/server"
 import { getServerSession } from "next-auth"
 import { authOptions } from "@/auth"
 import { db } from "@/lib/db"
-import { callDetails } from "@/lib/db/schema"
-import { eq } from "drizzle-orm"
-import twilio from "twilio"
+import twilioService from "@/lib/services/twilio"
 
 export async function POST(request: NextRequest, { params }: { params: { id: string } }) {
   try {
@@ -14,78 +12,70 @@ export async function POST(request: NextRequest, { params }: { params: { id: str
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
     }
 
-    const callDetailId = Number.parseInt(params.id)
-    if (isNaN(callDetailId)) {
-      return NextResponse.json({ error: "Invalid call detail ID" }, { status: 400 })
+    const callId = Number.parseInt(params.id)
+    if (isNaN(callId)) {
+      return NextResponse.json({ error: "Invalid call ID" }, { status: 400 })
     }
 
-    // Get the call detail
-    const callDetail = await db.query.callDetails.findFirst({
-      where: eq(callDetails.id, callDetailId),
-      with: {
-        callRecord: true,
-      },
+    // Get the call details from the database
+    const call = await db.query.callDetails.findFirst({
+      where: (fields, { eq }) => eq(fields.id, callId),
     })
 
-    if (!callDetail) {
-      return NextResponse.json({ error: "Call detail not found" }, { status: 404 })
+    if (!call) {
+      return NextResponse.json({ error: "Call not found" }, { status: 404 })
     }
 
-    // Verify the call record belongs to the user
-    if (callDetail.callRecord.userId !== session.user.id) {
-      return NextResponse.json({ error: "Not authorized to access this call" }, { status: 403 })
+    // Check if the call has a Twilio SID
+    if (!call.twilioSid) {
+      return NextResponse.json({ error: "Call has no Twilio SID" }, { status: 400 })
     }
 
     // Check if the call is in progress
-    if (callDetail.status !== "in-progress" && callDetail.status !== "ringing" && callDetail.status !== "queued") {
-      return NextResponse.json({ error: "Call is not in progress" }, { status: 400 })
+    if (call.status !== "in-progress" && call.status !== "ringing" && call.status !== "queued") {
+      return NextResponse.json(
+        {
+          error: "Call is not in progress",
+          status: call.status,
+        },
+        { status: 400 },
+      )
     }
 
-    // Check if we have a Twilio SID
-    if (!callDetail.twilioSid) {
-      return NextResponse.json({ error: "No Twilio call SID available" }, { status: 400 })
+    // Generate a unique conference name based on the call ID
+    const conferenceName = `call_${callId}_${Date.now()}`
+
+    console.log(`Setting up conference for call ${callId} with SID ${call.twilioSid}`)
+
+    // Update the call to join the conference
+    const result = await twilioService.updateCallToJoinConference(call.twilioSid, conferenceName)
+
+    if (!result.success) {
+      return NextResponse.json(
+        {
+          error: "Failed to update call to join conference",
+          details: result.error,
+        },
+        { status: 500 },
+      )
     }
 
-    // Initialize Twilio client
-    const client = twilio(process.env.TWILIO_ACCOUNT_SID, process.env.TWILIO_AUTH_TOKEN)
+    console.log(`Successfully set up conference: ${conferenceName}`)
 
-    // Create a conference name based on the call detail ID
-    const conferenceName = `listen_${callDetailId}_${Date.now()}`
-
-    // Update the in-progress call to join a conference
-    await client.calls(callDetail.twilioSid).update({
-      twiml: `
-        <Response>
-          <Dial>
-            <Conference startConferenceOnEnter="true" endConferenceOnExit="false">
-              ${conferenceName}
-            </Conference>
-          </Dial>
-        </Response>
-      `,
-    })
-
-    // Generate client-side capability token for listening
-    const ClientCapability = twilio.jwt.ClientCapability
-    const capability = new ClientCapability({
-      accountSid: process.env.TWILIO_ACCOUNT_SID || "",
-      authToken: process.env.TWILIO_AUTH_TOKEN || "",
-    })
-
-    // Allow the client to receive calls
-    capability.addScope(new ClientCapability.IncomingClientScope("browser_listener"))
-
-    // Generate the token
-    const token = capability.toJwt()
-
+    // Return the conference name
     return NextResponse.json({
       success: true,
-      token,
       conferenceName,
-      callSid: callDetail.twilioSid,
+      callSid: call.twilioSid,
     })
   } catch (error) {
-    console.error("Error initiating live call listening:", error)
-    return NextResponse.json({ error: error instanceof Error ? error.message : "Unknown error" }, { status: 500 })
+    console.error("Error setting up call listening:", error)
+    return NextResponse.json(
+      {
+        error: error instanceof Error ? error.message : "Unknown error",
+        stack: error instanceof Error ? error.stack : undefined,
+      },
+      { status: 500 },
+    )
   }
 }
