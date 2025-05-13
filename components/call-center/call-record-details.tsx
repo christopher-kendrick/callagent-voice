@@ -4,7 +4,7 @@ import type React from "react"
 
 import { useState, useRef, useEffect } from "react"
 import { useRouter } from "next/navigation"
-import { ArrowLeftIcon, RefreshCwIcon, PlayIcon, PauseIcon, Volume2Icon, VolumeXIcon } from "lucide-react"
+import { ArrowLeftIcon, RefreshCwIcon, PlayIcon, PauseIcon, Volume2Icon, VolumeXIcon, DownloadIcon } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
@@ -20,10 +20,11 @@ interface CallRecordDetailsProps {
 
 interface AudioPlayerProps {
   recordingUrl: string
+  recordingSid: string
   className?: string
 }
 
-function AudioPlayer({ recordingUrl, className }: AudioPlayerProps) {
+function AudioPlayer({ recordingUrl, recordingSid, className }: AudioPlayerProps) {
   const audioRef = useRef<HTMLAudioElement>(null)
   const [isPlaying, setIsPlaying] = useState(false)
   const [currentTime, setCurrentTime] = useState(0)
@@ -35,30 +36,43 @@ function AudioPlayer({ recordingUrl, className }: AudioPlayerProps) {
   const [proxyUrl, setProxyUrl] = useState<string | null>(null)
 
   useEffect(() => {
-    // Extract the recording ID from the Twilio URL
-    const recordingIdMatch = recordingUrl.match(/\/Recordings\/([A-Za-z0-9]+)/)
-    if (recordingIdMatch && recordingIdMatch[1]) {
-      const recordingId = recordingIdMatch[1]
-      setProxyUrl(`/api/recordings/${recordingId}`)
+    // Use the recording SID directly
+    if (recordingSid) {
+      setProxyUrl(`/api/recordings/${recordingSid}`)
       setIsLoading(false)
     } else {
-      setError("Invalid recording URL format")
-      setIsLoading(false)
+      // Extract the recording ID from the Twilio URL as fallback
+      const recordingIdMatch = recordingUrl.match(/\/Recordings\/([A-Za-z0-9]+)/)
+      if (recordingIdMatch && recordingIdMatch[1]) {
+        const extractedRecordingId = recordingIdMatch[1]
+        setProxyUrl(`/api/recordings/${extractedRecordingId}`)
+        setIsLoading(false)
+      } else {
+        setError("Invalid recording URL format")
+        setIsLoading(false)
+      }
     }
-  }, [recordingUrl])
+  }, [recordingUrl, recordingSid])
 
   const togglePlay = () => {
     if (audioRef.current) {
       if (isPlaying) {
         audioRef.current.pause()
+        setIsPlaying(false)
       } else {
-        audioRef.current.play().catch((err) => {
-          console.error("Error playing audio:", err)
-          setError("Failed to play recording. Please try again.")
-          toast.error("Failed to play recording. Please try again.")
-        })
+        const playPromise = audioRef.current.play()
+        if (playPromise !== undefined) {
+          playPromise
+            .then(() => {
+              setIsPlaying(true)
+            })
+            .catch((err) => {
+              console.error("Error playing audio:", err)
+              setError("Failed to play recording. Please try again.")
+              toast.error("Failed to play recording. Please try again.")
+            })
+        }
       }
-      setIsPlaying(!isPlaying)
     }
   }
 
@@ -73,6 +87,10 @@ function AudioPlayer({ recordingUrl, className }: AudioPlayerProps) {
       setDuration(audioRef.current.duration)
       setIsLoading(false)
     }
+  }
+
+  const handleCanPlay = () => {
+    setIsLoading(false)
   }
 
   const handleEnded = () => {
@@ -118,6 +136,18 @@ function AudioPlayer({ recordingUrl, className }: AudioPlayerProps) {
     }
   }
 
+  const handleDownload = () => {
+    if (proxyUrl) {
+      // Create a temporary link element
+      const link = document.createElement("a")
+      link.href = proxyUrl
+      link.download = `recording-${recordingSid}.wav`
+      document.body.appendChild(link)
+      link.click()
+      document.body.removeChild(link)
+    }
+  }
+
   const formatTime = (time: number) => {
     const minutes = Math.floor(time / 60)
     const seconds = Math.floor(time % 60)
@@ -129,7 +159,19 @@ function AudioPlayer({ recordingUrl, className }: AudioPlayerProps) {
   }
 
   if (error) {
-    return <div className="text-sm text-destructive">{error}</div>
+    return (
+      <div className="text-sm text-destructive">
+        {error}
+        <Button
+          variant="link"
+          size="sm"
+          className="ml-2 p-0 h-auto"
+          onClick={() => window.open(recordingUrl, "_blank")}
+        >
+          Try direct link
+        </Button>
+      </div>
+    )
   }
 
   return (
@@ -140,9 +182,11 @@ function AudioPlayer({ recordingUrl, className }: AudioPlayerProps) {
           src={proxyUrl}
           onTimeUpdate={handleTimeUpdate}
           onLoadedMetadata={handleLoadedMetadata}
+          onCanPlay={handleCanPlay}
           onEnded={handleEnded}
           onError={handleError}
           className="hidden"
+          preload="metadata"
         />
       )}
 
@@ -176,6 +220,10 @@ function AudioPlayer({ recordingUrl, className }: AudioPlayerProps) {
           className="w-20"
           aria-label="Volume"
         />
+
+        <Button variant="ghost" size="icon" onClick={handleDownload} aria-label="Download recording">
+          <DownloadIcon className="h-4 w-4" />
+        </Button>
       </div>
     </div>
   )
@@ -220,6 +268,12 @@ export function CallRecordDetails({ callRecord }: CallRecordDetailsProps) {
       default:
         return <Badge variant="outline">{status}</Badge>
     }
+  }
+
+  // Extract recording SID from URL
+  const getRecordingSid = (url: string) => {
+    const match = url.match(/\/Recordings\/([A-Za-z0-9]+)/)
+    return match ? match[1] : ""
   }
 
   return (
@@ -334,7 +388,10 @@ export function CallRecordDetails({ callRecord }: CallRecordDetailsProps) {
                                 {activeRecording === detail.recordingUrl ? "Hide Player" : "Listen"}
                               </Button>
                               {activeRecording === detail.recordingUrl && (
-                                <AudioPlayer recordingUrl={detail.recordingUrl} />
+                                <AudioPlayer
+                                  recordingUrl={detail.recordingUrl}
+                                  recordingSid={getRecordingSid(detail.recordingUrl)}
+                                />
                               )}
                             </div>
                           ) : (
