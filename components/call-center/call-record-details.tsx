@@ -4,15 +4,26 @@ import type React from "react"
 
 import { useState, useRef, useEffect } from "react"
 import { useRouter } from "next/navigation"
-import { ArrowLeftIcon, RefreshCwIcon, PlayIcon, PauseIcon, Volume2Icon, VolumeXIcon, DownloadIcon } from "lucide-react"
+import {
+  ArrowLeftIcon,
+  RefreshCwIcon,
+  PlayIcon,
+  PauseIcon,
+  Volume2Icon,
+  VolumeXIcon,
+  DownloadIcon,
+  PhoneIcon,
+} from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Separator } from "@/components/ui/separator"
 import { Slider } from "@/components/ui/slider"
+import { Dialog, DialogContent } from "@/components/ui/dialog"
 import { cn } from "@/lib/utils"
 import { toast } from "sonner"
+import { LiveCallListener } from "./live-call-listener"
 
 interface CallRecordDetailsProps {
   callRecord: any // Using any for simplicity, but you should define a proper type
@@ -233,6 +244,8 @@ export function CallRecordDetails({ callRecord }: CallRecordDetailsProps) {
   const router = useRouter()
   const [refreshing, setRefreshing] = useState(false)
   const [activeRecording, setActiveRecording] = useState<string | null>(null)
+  const [liveListeningOpen, setLiveListeningOpen] = useState(false)
+  const [selectedCallDetail, setSelectedCallDetail] = useState<any>(null)
 
   const handleRefresh = async () => {
     setRefreshing(true)
@@ -274,6 +287,17 @@ export function CallRecordDetails({ callRecord }: CallRecordDetailsProps) {
   const getRecordingSid = (url: string) => {
     const match = url.match(/\/Recordings\/([A-Za-z0-9]+)/)
     return match ? match[1] : ""
+  }
+
+  // Check if a call is in progress and can be listened to live
+  const isCallInProgress = (status: string) => {
+    return ["in-progress", "ringing", "queued", "initiated"].includes(status)
+  }
+
+  // Open live listening dialog
+  const openLiveListening = (callDetail: any) => {
+    setSelectedCallDetail(callDetail)
+    setLiveListeningOpen(true)
   }
 
   return (
@@ -359,7 +383,7 @@ export function CallRecordDetails({ callRecord }: CallRecordDetailsProps) {
                       <TableHead>Status</TableHead>
                       <TableHead>Start Time</TableHead>
                       <TableHead>Duration</TableHead>
-                      <TableHead>Recording</TableHead>
+                      <TableHead>Actions</TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
@@ -373,30 +397,44 @@ export function CallRecordDetails({ callRecord }: CallRecordDetailsProps) {
                         </TableCell>
                         <TableCell>{detail.duration ? `${detail.duration} seconds` : "N/A"}</TableCell>
                         <TableCell>
-                          {detail.recordingUrl ? (
-                            <div className="space-y-2">
+                          <div className="space-y-2">
+                            {/* Live listening button for in-progress calls */}
+                            {isCallInProgress(detail.status) && detail.twilioSid && (
                               <Button
-                                variant="link"
+                                variant="outline"
                                 size="sm"
-                                onClick={() =>
-                                  setActiveRecording(
-                                    activeRecording === detail.recordingUrl ? null : detail.recordingUrl,
-                                  )
-                                }
-                                className="p-0 h-auto"
+                                onClick={() => openLiveListening(detail)}
+                                className="w-full"
                               >
-                                {activeRecording === detail.recordingUrl ? "Hide Player" : "Listen"}
+                                <PhoneIcon className="mr-2 h-3 w-3" />
+                                Listen Live
                               </Button>
-                              {activeRecording === detail.recordingUrl && (
-                                <AudioPlayer
-                                  recordingUrl={detail.recordingUrl}
-                                  recordingSid={getRecordingSid(detail.recordingUrl)}
-                                />
-                              )}
-                            </div>
-                          ) : (
-                            "N/A"
-                          )}
+                            )}
+
+                            {/* Recording playback for completed calls */}
+                            {detail.recordingUrl && (
+                              <div>
+                                <Button
+                                  variant="link"
+                                  size="sm"
+                                  onClick={() =>
+                                    setActiveRecording(
+                                      activeRecording === detail.recordingUrl ? null : detail.recordingUrl,
+                                    )
+                                  }
+                                  className="p-0 h-auto"
+                                >
+                                  {activeRecording === detail.recordingUrl ? "Hide Player" : "Listen Recording"}
+                                </Button>
+                                {activeRecording === detail.recordingUrl && (
+                                  <AudioPlayer
+                                    recordingUrl={detail.recordingUrl}
+                                    recordingSid={getRecordingSid(detail.recordingUrl)}
+                                  />
+                                )}
+                              </div>
+                            )}
+                          </div>
                         </TableCell>
                       </TableRow>
                     ))}
@@ -409,6 +447,20 @@ export function CallRecordDetails({ callRecord }: CallRecordDetailsProps) {
           </div>
         </CardContent>
       </Card>
+
+      {/* Live Call Listening Dialog */}
+      <Dialog open={liveListeningOpen} onOpenChange={setLiveListeningOpen}>
+        <DialogContent className="sm:max-w-md">
+          {selectedCallDetail && (
+            <LiveCallListener
+              callDetailId={selectedCallDetail.id}
+              callSid={selectedCallDetail.twilioSid}
+              contactName={selectedCallDetail.contact?.name}
+              onClose={() => setLiveListeningOpen(false)}
+            />
+          )}
+        </DialogContent>
+      </Dialog>
     </div>
   )
 }

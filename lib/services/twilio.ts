@@ -14,6 +14,13 @@ interface InitiateCallParams {
   recordingEnabled?: boolean
 }
 
+interface JoinConferenceParams {
+  conferenceName: string
+  from: string
+  to: string
+  muted?: boolean
+}
+
 const twilioService = {
   initiateCall: async (params: InitiateCallParams) => {
     try {
@@ -42,6 +49,71 @@ const twilioService = {
       }
     } catch (error) {
       console.error("Error initiating Twilio call:", error)
+      return {
+        success: false,
+        error: error instanceof Error ? error.message : "Unknown error",
+      }
+    }
+  },
+
+  // Join a conference call
+  joinConference: async (params: JoinConferenceParams) => {
+    try {
+      // Create TwiML for joining a conference
+      const twiml = `
+        <Response>
+          <Dial>
+            <Conference startConferenceOnEnter="false" endConferenceOnExit="false" muted="${params.muted ? "true" : "false"}">
+              ${params.conferenceName}
+            </Conference>
+          </Dial>
+        </Response>
+      `
+
+      // Create a call to join the conference
+      const call = await client.calls.create({
+        to: params.to,
+        from: params.from,
+        twiml: twiml,
+      })
+
+      return {
+        success: true,
+        sid: call.sid,
+        status: call.status,
+      }
+    } catch (error) {
+      console.error("Error joining conference:", error)
+      return {
+        success: false,
+        error: error instanceof Error ? error.message : "Unknown error",
+      }
+    }
+  },
+
+  // Update an existing call to join a conference
+  updateCallToJoinConference: async (callSid: string, conferenceName: string) => {
+    try {
+      // Update the call with TwiML to join a conference
+      const call = await client.calls(callSid).update({
+        twiml: `
+          <Response>
+            <Dial>
+              <Conference startConferenceOnEnter="true" endConferenceOnExit="false">
+                ${conferenceName}
+              </Conference>
+            </Dial>
+          </Response>
+        `,
+      })
+
+      return {
+        success: true,
+        sid: call.sid,
+        status: call.status,
+      }
+    } catch (error) {
+      console.error("Error updating call to join conference:", error)
       return {
         success: false,
         error: error instanceof Error ? error.message : "Unknown error",
