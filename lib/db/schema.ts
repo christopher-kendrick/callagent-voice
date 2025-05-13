@@ -1,4 +1,4 @@
-import { pgTable, serial, text, timestamp, integer, boolean, json } from "drizzle-orm/pg-core"
+import { pgTable, serial, text, timestamp, integer, boolean, json, jsonb } from "drizzle-orm/pg-core"
 import { relations } from "drizzle-orm"
 
 // Contacts table
@@ -56,6 +56,42 @@ export const callDetails = pgTable("call_details", {
   createdAt: timestamp("created_at").defaultNow().notNull(),
 })
 
+// Prompts table for Hume AI
+export const prompts = pgTable("prompts", {
+  id: serial("id").primaryKey(),
+  userId: text("user_id").notNull(), // Foreign key to user in auth system
+  name: text("name").notNull(),
+  text: text("text").notNull(),
+  humePromptId: text("hume_prompt_id"), // ID returned from Hume API
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+})
+
+// Configs table for Hume AI
+export const configs = pgTable("configs", {
+  id: serial("id").primaryKey(),
+  userId: text("user_id").notNull(), // Foreign key to user in auth system
+  name: text("name").notNull(),
+  humeConfigId: text("hume_config_id"), // ID returned from Hume API
+  promptId: text("prompt_id"), // ID of the prompt
+  promptVersion: integer("prompt_version").default(0),
+  eviVersion: text("evi_version").default("2"),
+  voiceProvider: text("voice_provider").default("HUME_AI"),
+  voiceName: text("voice_name"),
+  modelProvider: text("model_provider").default("ANTHROPIC"),
+  modelResource: text("model_resource").default("claude-3-7-sonnet-latest"),
+  temperature: integer("temperature").default(1),
+  onNewChatEnabled: boolean("on_new_chat_enabled").default(false),
+  onNewChatText: text("on_new_chat_text").default(""),
+  onInactivityTimeoutEnabled: boolean("on_inactivity_timeout_enabled").default(false),
+  onInactivityTimeoutText: text("on_inactivity_timeout_text").default(""),
+  onMaxDurationTimeoutEnabled: boolean("on_max_duration_timeout_enabled").default(false),
+  onMaxDurationTimeoutText: text("on_max_duration_timeout_text").default(""),
+  rawConfig: jsonb("raw_config"), // Store the raw config for reference
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+})
+
 // Define relations
 export const contactsRelations = relations(contacts, ({ many }) => ({
   callDetails: many(callDetails),
@@ -84,6 +120,20 @@ export const callDetailsRelations = relations(callDetails, ({ one }) => ({
   }),
 }))
 
+export const promptsRelations = relations(prompts, ({ one }) => ({
+  user: one(configs, {
+    fields: [prompts.userId],
+    references: [configs.userId],
+  }),
+}))
+
+export const configsRelations = relations(configs, ({ one }) => ({
+  user: one(prompts, {
+    fields: [configs.userId],
+    references: [prompts.userId],
+  }),
+}))
+
 // Types
 export type Contact = typeof contacts.$inferSelect
 export type NewContact = typeof contacts.$inferInsert
@@ -96,3 +146,9 @@ export type NewCallRecord = typeof callRecords.$inferInsert
 
 export type CallDetail = typeof callDetails.$inferSelect
 export type NewCallDetail = typeof callDetails.$inferInsert
+
+export type Prompt = typeof prompts.$inferSelect
+export type NewPrompt = typeof prompts.$inferInsert
+
+export type Config = typeof configs.$inferSelect
+export type NewConfig = typeof configs.$inferInsert
