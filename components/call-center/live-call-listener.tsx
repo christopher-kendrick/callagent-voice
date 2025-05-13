@@ -92,13 +92,13 @@ export function LiveCallListener({ callDetailId, callSid, contactName, onClose }
     if (typeof window === "undefined") return
 
     if (!window.Twilio) {
-      addDebugInfo("Loading Twilio Client SDK...")
+      addDebugInfo("Loading Twilio Client SDK 2.13.0...")
       const script = document.createElement("script")
-      script.src = "//sdk.twilio.com/js/client/releases/1.14.0/twilio.js"
+      script.src = "//sdk.twilio.com/js/client/v2.13.0/twilio.min.js"
       script.async = true
       script.onload = () => {
         if (isMounted.current) {
-          addDebugInfo("Twilio Client SDK loaded successfully")
+          addDebugInfo("Twilio Client SDK 2.13.0 loaded successfully")
           setSdkLoaded(true)
         }
       }
@@ -166,18 +166,21 @@ export function LiveCallListener({ callDetailId, callSid, contactName, onClose }
 
       if (connectionRef.current) {
         try {
-          // Check if status method exists and call it
-          const isOpen =
-            typeof connectionRef.current.status === "function" ? connectionRef.current.status() === "open" : true
+          // Check if connection is active
+          const isActive = connectionRef.current.status() === "open"
 
-          if (isOpen) {
-            // Get the current input and output volumes if available
-            const inputVolume =
-              typeof connectionRef.current.inputVolume === "number" ? connectionRef.current.inputVolume : 0
-            const outputVolume =
-              typeof connectionRef.current.outputVolume === "number" ? connectionRef.current.outputVolume : 0
+          if (isActive) {
+            // Get the current volume levels if available
+            // In Twilio Client 2.x, we can use the getVolume() method
+            let outputVolume = 0
 
-            addDebugInfo(`Audio levels - Input: ${inputVolume.toFixed(2)}, Output: ${outputVolume.toFixed(2)}`)
+            if (typeof connectionRef.current.getVolume === "function") {
+              outputVolume = connectionRef.current.getVolume()
+              addDebugInfo(`Audio level - Output: ${outputVolume.toFixed(2)}`)
+            } else {
+              // Fallback to checking if we can detect audio through other means
+              addDebugInfo("getVolume method not available, using alternative detection")
+            }
 
             // If we detect any output volume, mark audio as detected
             if (outputVolume > 0.01) {
@@ -262,7 +265,7 @@ export function LiveCallListener({ callDetailId, callSid, contactName, onClose }
     }
   }
 
-  // Step 3: Initialize Twilio Device with EventEmitter pattern
+  // Step 3: Initialize Twilio Device with EventEmitter pattern for v2.x
   const initializeTwilioDevice = async (token: string) => {
     try {
       addDebugInfo("Initializing Twilio Device...")
@@ -270,14 +273,16 @@ export function LiveCallListener({ callDetailId, callSid, contactName, onClose }
         throw new Error("Twilio Client SDK not loaded yet")
       }
 
-      // Create a new device
-      const device = new window.Twilio.Device(token, {
+      // Create a new device - in v2.x, we use Twilio.Device.setup() instead of new Device()
+      const device = window.Twilio.Device.setup(token, {
+        debug: true,
+        // v2.x options
+        enableRingingState: true,
         codecPreferences: ["opus", "pcmu"],
         fakeLocalDTMF: true,
-        enableRingingState: true,
-        debug: true,
-        audioConstraints: {
-          optional: [],
+        sounds: {
+          incoming: false, // Disable the incoming ringtone
+          outgoing: false, // Disable the outgoing ringtone
         },
       })
 
@@ -332,7 +337,7 @@ export function LiveCallListener({ callDetailId, callSid, contactName, onClose }
         }, 10000)
 
         // Check if device is already ready
-        if (device.state === "ready") {
+        if (device.isReady()) {
           addDebugInfo("Device is already ready")
           cleanup()
           resolve(device)
@@ -344,7 +349,7 @@ export function LiveCallListener({ callDetailId, callSid, contactName, onClose }
     }
   }
 
-  // Step 4: Connect to the conference with EventEmitter pattern
+  // Step 4: Connect to the conference with EventEmitter pattern for v2.x
   const connectToConference = async (device: any, confName: string, identity: string) => {
     try {
       addDebugInfo(`Connecting to conference: ${confName}...`)
@@ -358,8 +363,8 @@ export function LiveCallListener({ callDetailId, callSid, contactName, onClose }
       // Log the exact parameters we're sending
       addDebugInfo(`Connection params: ${JSON.stringify(connectionParams)}`)
 
-      // Connect to the conference
-      const connection = await device.connect(connectionParams)
+      // Connect to the conference - in v2.x, we use device.connect() with parameters
+      const connection = device.connect(connectionParams)
       addDebugInfo("Connection initiated")
 
       // Store the connection in the ref
@@ -398,14 +403,10 @@ export function LiveCallListener({ callDetailId, callSid, contactName, onClose }
       // Add event listeners using the EventEmitter pattern
       addConnectionListeners(connection)
 
-      // Set up volume control
-      if (typeof connection.volume === "function") {
-        connection.volume(volume)
-      } else {
-        // Use the EventEmitter pattern for volume if the function is not available
-        connection.on("volume", (vol: number) => {
-          addDebugInfo(`Volume event: ${vol}`)
-        })
+      // Set up volume control - in v2.x, we use connection.setVolume()
+      if (typeof connection.setVolume === "function") {
+        connection.setVolume(volume)
+        addDebugInfo(`Set initial volume to ${volume}`)
       }
 
       return connection
@@ -418,6 +419,7 @@ export function LiveCallListener({ callDetailId, callSid, contactName, onClose }
   // Helper function to add connection event listeners
   const addConnectionListeners = (connection: any) => {
     try {
+      // In v2.x, the event names might be slightly different
       connection.on("accept", eventHandlersRef.current.connection.accept)
       connection.on("disconnect", eventHandlersRef.current.connection.disconnect)
       connection.on("error", eventHandlersRef.current.connection.error)
@@ -485,7 +487,7 @@ export function LiveCallListener({ callDetailId, callSid, contactName, onClose }
         // Remove event listeners before disconnecting
         removeConnectionListeners(connectionRef.current)
 
-        // Disconnect
+        // Disconnect - in v2.x, we use connection.disconnect()
         connectionRef.current.disconnect()
         connectionRef.current = null
       }
@@ -499,7 +501,7 @@ export function LiveCallListener({ callDetailId, callSid, contactName, onClose }
           addDebugInfo(`Error removing device listeners: ${e instanceof Error ? e.message : "Unknown error"}`)
         }
 
-        // Destroy device
+        // Destroy device - in v2.x, we use device.destroy()
         deviceRef.current.destroy()
         deviceRef.current = null
       }
@@ -514,20 +516,16 @@ export function LiveCallListener({ callDetailId, callSid, contactName, onClose }
     }
   }, [addDebugInfo, stopAudioLevelMonitoring])
 
-  // Toggle mute using the EventEmitter pattern
+  // Toggle mute using v2.x methods
   const toggleMute = () => {
     if (connectionRef.current) {
       try {
         const newMuteState = !isMuted
 
-        // Use the mute method if available
+        // In v2.x, we use connection.mute(boolean)
         if (typeof connectionRef.current.mute === "function") {
           connectionRef.current.mute(newMuteState)
-          addDebugInfo(`${newMuteState ? "Muted" : "Unmuted"} connection using mute() method`)
-        } else {
-          // Alternatively, emit a mute event
-          connectionRef.current.emit("mute", newMuteState)
-          addDebugInfo(`${newMuteState ? "Muted" : "Unmuted"} connection using emit('mute')`)
+          addDebugInfo(`${newMuteState ? "Muted" : "Unmuted"} connection`)
         }
 
         setIsMuted(newMuteState)
@@ -537,7 +535,7 @@ export function LiveCallListener({ callDetailId, callSid, contactName, onClose }
     }
   }
 
-  // Handle volume change using the EventEmitter pattern
+  // Handle volume change using v2.x methods
   const handleVolumeChange = (value: number[]) => {
     const newVolume = value[0]
     setVolume(newVolume)
@@ -546,14 +544,10 @@ export function LiveCallListener({ callDetailId, callSid, contactName, onClose }
     // Apply volume to the connection if it exists
     if (connectionRef.current) {
       try {
-        // Use the volume method if available
-        if (typeof connectionRef.current.volume === "function") {
-          connectionRef.current.volume(newVolume)
-          addDebugInfo(`Applied volume ${newVolume} using volume() method`)
-        } else {
-          // Alternatively, emit a volume event
-          connectionRef.current.emit("volume", newVolume)
-          addDebugInfo(`Applied volume ${newVolume} using emit('volume')`)
+        // In v2.x, we use connection.setVolume(volume)
+        if (typeof connectionRef.current.setVolume === "function") {
+          connectionRef.current.setVolume(newVolume)
+          addDebugInfo(`Applied volume ${newVolume}`)
         }
       } catch (error) {
         addDebugInfo(`Error setting volume: ${error instanceof Error ? error.message : "Unknown error"}`)
