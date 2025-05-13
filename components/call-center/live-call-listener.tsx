@@ -86,6 +86,26 @@ export function LiveCallListener({ callDetailId, callSid, contactName, onClose }
     console.log(`[LiveCallListener] ${info}`)
   }
 
+  // Helper function to safely remove event listeners
+  const safelyRemoveListener = (obj: any, event: string, handler: Function) => {
+    if (!obj) return
+
+    try {
+      // Try different methods to remove listeners based on what's available
+      if (typeof obj.removeListener === "function") {
+        addDebugInfo(`Removing listener for ${event} using removeListener`)
+        obj.removeListener(event, handler)
+      } else if (typeof obj.off === "function") {
+        addDebugInfo(`Removing listener for ${event} using off`)
+        obj.off(event, handler)
+      } else {
+        addDebugInfo(`Warning: Could not find method to remove listener for ${event}`)
+      }
+    } catch (error) {
+      addDebugInfo(`Error removing listener for ${event}: ${error instanceof Error ? error.message : "Unknown error"}`)
+    }
+  }
+
   // Load Twilio Client JS SDK
   useEffect(() => {
     if (typeof window !== "undefined" && !window.Twilio) {
@@ -219,23 +239,23 @@ export function LiveCallListener({ callDetailId, callSid, contactName, onClose }
       return new Promise<any>((resolve, reject) => {
         // Set a timeout to prevent hanging
         const timeout = setTimeout(() => {
-          device.off("ready", onReady)
-          device.off("error", onError)
+          safelyRemoveListener(device, "ready", onReady)
+          safelyRemoveListener(device, "error", onError)
           reject(new Error("Timeout waiting for device to be ready"))
         }, 10000)
 
         // Define handlers that will be used for this promise
         function onReady() {
           clearTimeout(timeout)
-          device.off("ready", onReady)
-          device.off("error", onError)
+          safelyRemoveListener(device, "ready", onReady)
+          safelyRemoveListener(device, "error", onError)
           resolve(device)
         }
 
         function onError(err: any) {
           clearTimeout(timeout)
-          device.off("ready", onReady)
-          device.off("error", onError)
+          safelyRemoveListener(device, "ready", onReady)
+          safelyRemoveListener(device, "error", onError)
           reject(err)
         }
 
@@ -246,8 +266,8 @@ export function LiveCallListener({ callDetailId, callSid, contactName, onClose }
         // Also resolve if device is already ready
         if (device.state === "ready") {
           clearTimeout(timeout)
-          device.off("ready", onReady)
-          device.off("error", onError)
+          safelyRemoveListener(device, "ready", onReady)
+          safelyRemoveListener(device, "error", onError)
           resolve(device)
         }
       })
@@ -390,9 +410,9 @@ export function LiveCallListener({ callDetailId, callSid, contactName, onClose }
 
       if (connectionRef.current) {
         // Remove event listeners
-        connectionRef.current.off("accept", eventHandlersRef.current.connectionAccept)
-        connectionRef.current.off("disconnect", eventHandlersRef.current.connectionDisconnect)
-        connectionRef.current.off("error", eventHandlersRef.current.connectionError)
+        safelyRemoveListener(connectionRef.current, "accept", eventHandlersRef.current.connectionAccept)
+        safelyRemoveListener(connectionRef.current, "disconnect", eventHandlersRef.current.connectionDisconnect)
+        safelyRemoveListener(connectionRef.current, "error", eventHandlersRef.current.connectionError)
 
         // Disconnect
         connectionRef.current.disconnect()
@@ -401,8 +421,8 @@ export function LiveCallListener({ callDetailId, callSid, contactName, onClose }
 
       if (deviceRef.current) {
         // Remove event listeners
-        deviceRef.current.off("ready", eventHandlersRef.current.deviceReady)
-        deviceRef.current.off("error", eventHandlersRef.current.deviceError)
+        safelyRemoveListener(deviceRef.current, "ready", eventHandlersRef.current.deviceReady)
+        safelyRemoveListener(deviceRef.current, "error", eventHandlersRef.current.deviceError)
 
         // Destroy device
         deviceRef.current.destroy()
