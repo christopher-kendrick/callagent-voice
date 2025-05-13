@@ -106,6 +106,7 @@ export async function POST(request: NextRequest) {
     )
 
     // Generate TwiML for joining a conference with proper formatting
+    // Using string-based TwiML generation instead of the VoiceResponse constructor
     const twiml = `<?xml version="1.0" encoding="UTF-8"?>
 <Response>
   <Dial>
