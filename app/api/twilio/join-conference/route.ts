@@ -1,67 +1,138 @@
 import { type NextRequest, NextResponse } from "next/server"
-import { VoiceResponse } from "twilio/lib/twiml/VoiceResponse"
 
 export async function POST(request: NextRequest) {
   try {
-    // Parse the request body
-    let conferenceName: string | null = null
-    let clientIdentity: string | null = null
-    let muted: string | null = "false" // Default to false (not muted)
+    console.log("Received request to join-conference endpoint")
 
-    // Handle different content types
-    const contentType = request.headers.get("content-type") || ""
+    // First, try to get parameters from URL
+    const url = new URL(request.url)
+    let conferenceName = url.searchParams.get("conferenceName") || undefined
+    let clientIdentity = url.searchParams.get("clientIdentity") || undefined
+    let muted = url.searchParams.get("muted") === "true"
 
-    if (contentType.includes("application/json")) {
-      // Handle JSON request
-      const body = await request.json()
-      conferenceName = body.conferenceName || null
-      clientIdentity = body.clientIdentity || null
-      muted = body.muted !== undefined ? String(body.muted) : "false"
-    } else if (
-      contentType.includes("application/x-www-form-urlencoded") ||
-      contentType.includes("multipart/form-data")
-    ) {
-      // Handle form data
-      const formData = await request.formData()
-      conferenceName = formData.get("conferenceName") as string | null
-      clientIdentity = formData.get("clientIdentity") as string | null
-      muted = formData.has("muted") ? String(formData.get("muted")) : "false"
-    } else {
-      // Try to get from URL params
-      const url = new URL(request.url)
-      conferenceName = url.searchParams.get("conferenceName")
-      clientIdentity = url.searchParams.get("clientIdentity")
-      muted = url.searchParams.has("muted") ? url.searchParams.get("muted") : "false"
-    }
-
-    // Validate required parameters
-    if (!conferenceName) {
-      return NextResponse.json({ error: "Conference name is required" }, { status: 400 })
-    }
-
-    // Generate TwiML response
-    const twiml = new VoiceResponse()
-    const dial = twiml.dial()
-
-    // Add the conference with the muted attribute
-    dial.conference(
-      {
-        waitUrl: "",
-        startConferenceOnEnter: "true",
-        endConferenceOnExit: "false",
-        muted: muted, // Include the muted attribute
-      },
-      conferenceName,
+    console.log(
+      `URL parameters: conferenceName=${conferenceName || "undefined"}, clientIdentity=${
+        clientIdentity || "undefined"
+      }, muted=${muted}`,
     )
 
-    // Return TwiML as XML
-    return new NextResponse(twiml.toString(), {
+    // If not in URL, try to get from body
+    if (!conferenceName) {
+      // Get the content type from the request
+      const contentType = request.headers.get("content-type") || ""
+      console.log(`Content-Type: ${contentType}`)
+
+      if (contentType.includes("application/json")) {
+        try {
+          // Parse JSON body
+          const body = await request.json()
+          conferenceName = body.conferenceName
+          clientIdentity = clientIdentity || body.clientIdentity
+          muted = body.muted === true
+          console.log(`Parsed JSON body: ${JSON.stringify(body)}`)
+        } catch (parseError) {
+          console.error("Error parsing JSON body:", parseError)
+          // Try to get the raw text to see what's being sent
+          try {
+            const text = await request.clone().text()
+            console.log(`Raw request body: ${text}`)
+          } catch (textError) {
+            console.error("Error reading raw text:", textError)
+          }
+        }
+      } else if (
+        contentType.includes("multipart/form-data") ||
+        contentType.includes("application/x-www-form-urlencoded")
+      ) {
+        try {
+          // Parse form data
+          const formData = await request.formData()
+
+          // Log all form data entries for debugging
+          console.log("Form data entries:")
+          for (const [key, value] of formData.entries()) {
+            console.log(`  ${key}: ${value}`)
+          }
+
+          conferenceName = formData.get("conferenceName")?.toString()
+          clientIdentity = clientIdentity || formData.get("clientIdentity")?.toString()
+          muted = formData.get("muted") === "true"
+          console.log(
+            `Parsed form data: conferenceName=${conferenceName || "undefined"}, clientIdentity=${
+              clientIdentity || "undefined"
+            }, muted=${muted}`,
+          )
+        } catch (formError) {
+          console.error("Error parsing form data:", formError)
+          try {
+            const text = await request.clone().text()
+            console.log(`Raw request body: ${text}`)
+          } catch (textError) {
+            console.error("Error reading raw text:", textError)
+          }
+        }
+      } else {
+        // For any other content type, try to get the raw text
+        try {
+          const text = await request.text()
+          console.log(`Raw request body: ${text}`)
+
+          // Try to parse as URL-encoded form data
+          if (text.includes("=")) {
+            const params = new URLSearchParams(text)
+            conferenceName = params.get("conferenceName") || undefined
+            clientIdentity = clientIdentity || params.get("clientIdentity") || undefined
+            muted = params.get("muted") === "true"
+            console.log(
+              `Parsed from raw text: conferenceName=${conferenceName || "undefined"}, clientIdentity=${
+                clientIdentity || "undefined"
+              }, muted=${muted}`,
+            )
+          }
+        } catch (error) {
+          console.error("Error reading request body:", error)
+        }
+      }
+    }
+
+    // If we still don't have a conference name, use a default for testing
+    if (!conferenceName) {
+      conferenceName = `default_conference_${Date.now()}`
+      console.log(`Using default conference name: ${conferenceName}`)
+    }
+
+    console.log(
+      `Generating TwiML for conference: ${conferenceName}, client: ${clientIdentity || "unknown"}, muted: ${muted}`,
+    )
+
+    // Generate TwiML for joining a conference with proper formatting
+    const twiml = `<?xml version="1.0" encoding="UTF-8"?>
+<Response>
+  <Dial>
+    <Conference 
+      waitUrl=""
+      startConferenceOnEnter="true" 
+      endConferenceOnExit="false"
+      muted="${muted}"
+    >
+      ${conferenceName}
+    </Conference>
+  </Dial>
+</Response>`
+
+    console.log("Generated TwiML successfully")
+
+    // Return the TwiML with the correct content type
+    return new NextResponse(twiml, {
       headers: {
         "Content-Type": "text/xml",
       },
     })
   } catch (error) {
     console.error("Error generating TwiML:", error)
-    return NextResponse.json({ error: "Failed to generate TwiML" }, { status: 500 })
+    return NextResponse.json(
+      { error: `Failed to generate TwiML: ${error instanceof Error ? error.message : "Unknown error"}` },
+      { status: 500 },
+    )
   }
 }
