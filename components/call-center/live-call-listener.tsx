@@ -206,7 +206,7 @@ export function LiveCallListener({ callDetailId, callSid, contactName, onClose }
         addDebugInfo(`Call SID: ${data.callSid}`)
       }
       if (data.status) {
-        addDebugInfo(`Call status: ${data.status}`)
+        addDebugInfo(`Call status: ${data.callStatus}`)
       }
       if (data.contactName) {
         addDebugInfo(`Contact name: ${data.contactName}`)
@@ -340,16 +340,12 @@ export function LiveCallListener({ callDetailId, callSid, contactName, onClose }
       const connectionParams = {
         To: confName,
         From: identity,
-        params: {
-          conferenceName: confName,
-          clientIdentity: identity,
-          muted: false, // Set to false to ensure we can hear audio
-        },
       }
 
+      // Log the exact parameters we're sending
       addDebugInfo(`Connection params: ${JSON.stringify(connectionParams)}`)
 
-      // Connect to the conference
+      // Connect to the conference - don't pass any additional params object
       const connection = await device.connect(connectionParams)
       addDebugInfo("Connection initiated")
 

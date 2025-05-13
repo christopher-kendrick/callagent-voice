@@ -16,12 +16,15 @@ export async function POST(request: NextRequest) {
       }, muted=${muted}`,
     )
 
+    // Clone the request for multiple reads
+    const clonedRequest = request.clone()
+
+    // Get the content type
+    const contentType = request.headers.get("content-type") || ""
+    console.log(`Content-Type: ${contentType}`)
+
     // If not in URL, try to get from body
     if (!conferenceName) {
-      // Get the content type from the request
-      const contentType = request.headers.get("content-type") || ""
-      console.log(`Content-Type: ${contentType}`)
-
       if (contentType.includes("application/json")) {
         try {
           // Parse JSON body
@@ -32,13 +35,6 @@ export async function POST(request: NextRequest) {
           console.log(`Parsed JSON body: ${JSON.stringify(body)}`)
         } catch (parseError) {
           console.error("Error parsing JSON body:", parseError)
-          // Try to get the raw text to see what's being sent
-          try {
-            const text = await request.clone().text()
-            console.log(`Raw request body: ${text}`)
-          } catch (textError) {
-            console.error("Error reading raw text:", textError)
-          }
         }
       } else if (
         contentType.includes("multipart/form-data") ||
@@ -57,6 +53,13 @@ export async function POST(request: NextRequest) {
           conferenceName = formData.get("conferenceName")?.toString()
           clientIdentity = clientIdentity || formData.get("clientIdentity")?.toString()
           muted = formData.get("muted") === "true"
+
+          // If no conferenceName, try to get it from the To parameter (Twilio webhook format)
+          if (!conferenceName && formData.has("To")) {
+            conferenceName = formData.get("To")?.toString()
+            console.log(`Using To parameter as conference name: ${conferenceName}`)
+          }
+
           console.log(
             `Parsed form data: conferenceName=${conferenceName || "undefined"}, clientIdentity=${
               clientIdentity || "undefined"
@@ -64,25 +67,33 @@ export async function POST(request: NextRequest) {
           )
         } catch (formError) {
           console.error("Error parsing form data:", formError)
-          try {
-            const text = await request.clone().text()
-            console.log(`Raw request body: ${text}`)
-          } catch (textError) {
-            console.error("Error reading raw text:", textError)
-          }
         }
       } else {
         // For any other content type, try to get the raw text
         try {
-          const text = await request.text()
+          const text = await clonedRequest.text()
           console.log(`Raw request body: ${text}`)
 
           // Try to parse as URL-encoded form data
           if (text.includes("=")) {
             const params = new URLSearchParams(text)
+
+            // Log all parameters for debugging
+            console.log("URL-encoded parameters:")
+            for (const [key, value] of params.entries()) {
+              console.log(`  ${key}: ${value}`)
+            }
+
             conferenceName = params.get("conferenceName") || undefined
             clientIdentity = clientIdentity || params.get("clientIdentity") || undefined
             muted = params.get("muted") === "true"
+
+            // If no conferenceName, try to get it from the To parameter (Twilio webhook format)
+            if (!conferenceName && params.has("To")) {
+              conferenceName = params.get("To")
+              console.log(`Using To parameter as conference name: ${conferenceName}`)
+            }
+
             console.log(
               `Parsed from raw text: conferenceName=${conferenceName || "undefined"}, clientIdentity=${
                 clientIdentity || "undefined"
@@ -106,7 +117,6 @@ export async function POST(request: NextRequest) {
     )
 
     // Generate TwiML for joining a conference with proper formatting
-    // Using string-based TwiML generation instead of the VoiceResponse constructor
     const twiml = `<?xml version="1.0" encoding="UTF-8"?>
 <Response>
   <Dial>
@@ -114,7 +124,7 @@ export async function POST(request: NextRequest) {
       waitUrl=""
       startConferenceOnEnter="true" 
       endConferenceOnExit="false"
-      muted="false"
+      muted="${muted}"
     >
       ${conferenceName}
     </Conference>
@@ -122,6 +132,7 @@ export async function POST(request: NextRequest) {
 </Response>`
 
     console.log("Generated TwiML successfully")
+    console.log(`Final TwiML: ${twiml}`)
 
     // Return the TwiML with the correct content type
     return new NextResponse(twiml, {
