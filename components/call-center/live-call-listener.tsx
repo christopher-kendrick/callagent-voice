@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useEffect, useRef } from "react"
+import { useState, useEffect, useRef, useCallback } from "react"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
@@ -41,13 +41,20 @@ export function LiveCallListener({ callDetailId, callSid, contactName, onClose }
   const deviceRef = useRef<any>(null)
   const audioLevelTimerRef = useRef<NodeJS.Timeout | null>(null)
 
-  // Store event handlers in refs to avoid issues with adding/removing listeners
-  const eventHandlersRef = useRef({
-    deviceReady: () => {
-      addDebugInfo("Twilio Device is ready")
-      setStatus("Device ready to connect")
-    },
-    deviceError: (deviceError: any) => {
+  // Helper function to add debug info
+  const addDebugInfo = useCallback((info: string) => {
+    setDebugInfo((prev) => [...prev, `${new Date().toISOString().split("T")[1].split(".")[0]}: ${info}`])
+    console.log(`[LiveCallListener] ${info}`)
+  }, [])
+
+  // Define event handlers as stable callback functions
+  const handleDeviceReady = useCallback(() => {
+    addDebugInfo("Twilio Device is ready")
+    setStatus("Device ready to connect")
+  }, [addDebugInfo])
+
+  const handleDeviceError = useCallback(
+    (deviceError: any) => {
       console.error("Twilio device error:", deviceError)
       addDebugInfo(`Device error: ${deviceError.message || "Unknown error"}`)
       setError(`Device error: ${deviceError.message || "Unknown error"}`)
@@ -55,22 +62,28 @@ export function LiveCallListener({ callDetailId, callSid, contactName, onClose }
       setIsConnecting(false)
       setIsConnected(false)
     },
-    connectionAccept: () => {
-      addDebugInfo("Connection accepted")
-      setIsConnected(true)
-      setIsConnecting(false)
-      setStatus("Connected")
-      toast.success("Connected to live call")
-      startAudioLevelMonitoring()
-    },
-    connectionDisconnect: () => {
-      addDebugInfo("Connection disconnected")
-      setIsConnected(false)
-      setStatus("Disconnected")
-      toast.info("Disconnected from call")
-      stopAudioLevelMonitoring()
-    },
-    connectionError: (connectionError: any) => {
+    [addDebugInfo],
+  )
+
+  const handleConnectionAccept = useCallback(() => {
+    addDebugInfo("Connection accepted")
+    setIsConnected(true)
+    setIsConnecting(false)
+    setStatus("Connected")
+    toast.success("Connected to live call")
+    startAudioLevelMonitoring()
+  }, [addDebugInfo])
+
+  const handleConnectionDisconnect = useCallback(() => {
+    addDebugInfo("Connection disconnected")
+    setIsConnected(false)
+    setStatus("Disconnected")
+    toast.info("Disconnected from call")
+    stopAudioLevelMonitoring()
+  }, [addDebugInfo])
+
+  const handleConnectionError = useCallback(
+    (connectionError: any) => {
       console.error("Connection error:", connectionError)
       addDebugInfo(`Connection error: ${connectionError.message || "Unknown error"}`)
       setError(`Connection error: ${connectionError.message || "Unknown error"}`)
@@ -79,32 +92,148 @@ export function LiveCallListener({ callDetailId, callSid, contactName, onClose }
       setIsConnecting(false)
       stopAudioLevelMonitoring()
     },
+    [addDebugInfo],
+  )
+
+  // Store event handlers in refs to maintain references
+  const eventHandlersRef = useRef({
+    deviceReady: handleDeviceReady,
+    deviceError: handleDeviceError,
+    connectionAccept: handleConnectionAccept,
+    connectionDisconnect: handleConnectionDisconnect,
+    connectionError: handleConnectionError,
   })
 
-  const addDebugInfo = (info: string) => {
-    setDebugInfo((prev) => [...prev, `${new Date().toISOString().split("T")[1].split(".")[0]}: ${info}`])
-    console.log(`[LiveCallListener] ${info}`)
-  }
+  // Update the refs when the callbacks change
+  useEffect(() => {
+    eventHandlersRef.current = {
+      deviceReady: handleDeviceReady,
+      deviceError: handleDeviceError,
+      connectionAccept: handleConnectionAccept,
+      connectionDisconnect: handleConnectionDisconnect,
+      connectionError: handleConnectionError,
+    }
+  }, [handleDeviceReady, handleDeviceError, handleConnectionAccept, handleConnectionDisconnect, handleConnectionError])
+
+  // Helper function to safely add event listeners
+  const safelyAddListener = useCallback(
+    (obj: any, event: string, handler: Function) => {
+      if (!obj) {
+        addDebugInfo(`Cannot add listener for ${event}: object is null or undefined`)
+        return false
+      }
+
+      if (typeof handler !== "function") {
+        addDebugInfo(`Cannot add listener for ${event}: handler is not a function`)
+        return false
+      }
+
+      try {
+        if (typeof obj.on === "function") {
+          addDebugInfo(`Adding listener for ${event} using .on()`)
+          obj.on(event, handler)
+          return true
+        } else if (typeof obj.addEventListener === "function") {
+          addDebugInfo(`Adding listener for ${event} using .addEventListener()`)
+          obj.addEventListener(event, handler)
+          return true
+        } else {
+          addDebugInfo(`Warning: Could not find method to add listener for ${event}`)
+          return false
+        }
+      } catch (error) {
+        addDebugInfo(`Error adding listener for ${event}: ${error instanceof Error ? error.message : "Unknown error"}`)
+        return false
+      }
+    },
+    [addDebugInfo],
+  )
 
   // Helper function to safely remove event listeners
-  const safelyRemoveListener = (obj: any, event: string, handler: Function) => {
-    if (!obj) return
-
-    try {
-      // Try different methods to remove listeners based on what's available
-      if (typeof obj.removeListener === "function") {
-        addDebugInfo(`Removing listener for ${event} using removeListener`)
-        obj.removeListener(event, handler)
-      } else if (typeof obj.off === "function") {
-        addDebugInfo(`Removing listener for ${event} using off`)
-        obj.off(event, handler)
-      } else {
-        addDebugInfo(`Warning: Could not find method to remove listener for ${event}`)
+  const safelyRemoveListener = useCallback(
+    (obj: any, event: string, handler: Function) => {
+      if (!obj) {
+        addDebugInfo(`Cannot remove listener for ${event}: object is null or undefined`)
+        return
       }
-    } catch (error) {
-      addDebugInfo(`Error removing listener for ${event}: ${error instanceof Error ? error.message : "Unknown error"}`)
+
+      if (typeof handler !== "function") {
+        addDebugInfo(`Cannot remove listener for ${event}: handler is not a function`)
+        return
+      }
+
+      try {
+        // Try different methods to remove listeners based on what's available
+        if (typeof obj.removeListener === "function") {
+          addDebugInfo(`Removing listener for ${event} using .removeListener()`)
+          obj.removeListener(event, handler)
+        } else if (typeof obj.off === "function") {
+          addDebugInfo(`Removing listener for ${event} using .off()`)
+          obj.off(event, handler)
+        } else if (typeof obj.removeEventListener === "function") {
+          addDebugInfo(`Removing listener for ${event} using .removeEventListener()`)
+          obj.removeEventListener(event, handler)
+        } else {
+          addDebugInfo(`Warning: Could not find method to remove listener for ${event}`)
+        }
+      } catch (error) {
+        addDebugInfo(
+          `Error removing listener for ${event}: ${error instanceof Error ? error.message : "Unknown error"}`,
+        )
+      }
+    },
+    [addDebugInfo],
+  )
+
+  // Monitor audio levels to detect if audio is being received
+  const startAudioLevelMonitoring = useCallback(() => {
+    if (audioLevelTimerRef.current) {
+      clearInterval(audioLevelTimerRef.current)
     }
-  }
+
+    let silentSeconds = 0
+    audioLevelTimerRef.current = setInterval(() => {
+      if (
+        connectionRef.current &&
+        typeof connectionRef.current.status === "function" &&
+        connectionRef.current.status() === "open"
+      ) {
+        try {
+          // Get the current input and output volumes if available
+          const inputVolume =
+            typeof connectionRef.current.inputVolume === "number" ? connectionRef.current.inputVolume : 0
+          const outputVolume =
+            typeof connectionRef.current.outputVolume === "number" ? connectionRef.current.outputVolume : 0
+
+          addDebugInfo(`Audio levels - Input: ${inputVolume.toFixed(2)}, Output: ${outputVolume.toFixed(2)}`)
+
+          // If we detect any output volume, mark audio as detected
+          if (outputVolume > 0.01) {
+            setAudioDetected(true)
+            silentSeconds = 0
+          } else {
+            silentSeconds++
+
+            // If we've been silent for more than 5 seconds, show a warning
+            if (silentSeconds > 5 && !audioDetected) {
+              addDebugInfo("No audio detected for 5 seconds")
+            }
+          }
+        } catch (error) {
+          addDebugInfo(`Error monitoring audio levels: ${error instanceof Error ? error.message : "Unknown error"}`)
+        }
+      }
+    }, 1000)
+  }, [addDebugInfo, audioDetected])
+
+  // Stop monitoring audio levels
+  const stopAudioLevelMonitoring = useCallback(() => {
+    if (audioLevelTimerRef.current) {
+      clearInterval(audioLevelTimerRef.current)
+      audioLevelTimerRef.current = null
+    }
+    setAudioDetected(false)
+  }, [])
 
   // Load Twilio Client JS SDK
   useEffect(() => {
@@ -130,7 +259,7 @@ export function LiveCallListener({ callDetailId, callSid, contactName, onClose }
       addDebugInfo("Twilio Client SDK already loaded")
       setSdkLoaded(true)
     }
-  }, [])
+  }, [addDebugInfo])
 
   // Initialize timer for connected call
   useEffect(() => {
@@ -232,8 +361,16 @@ export function LiveCallListener({ callDetailId, callSid, contactName, onClose }
       })
 
       // Add event listeners using the stored handlers
-      device.on("ready", eventHandlersRef.current.deviceReady)
-      device.on("error", eventHandlersRef.current.deviceError)
+      const deviceReadyHandler = eventHandlersRef.current.deviceReady
+      const deviceErrorHandler = eventHandlersRef.current.deviceError
+
+      if (!safelyAddListener(device, "ready", deviceReadyHandler)) {
+        addDebugInfo("Failed to add ready listener to device")
+      }
+
+      if (!safelyAddListener(device, "error", deviceErrorHandler)) {
+        addDebugInfo("Failed to add error listener to device")
+      }
 
       // Wait for device to be ready
       return new Promise<any>((resolve, reject) => {
@@ -260,8 +397,20 @@ export function LiveCallListener({ callDetailId, callSid, contactName, onClose }
         }
 
         // Add temporary listeners for this promise
-        device.on("ready", onReady)
-        device.on("error", onError)
+        if (!safelyAddListener(device, "ready", onReady)) {
+          addDebugInfo("Failed to add temporary ready listener")
+          clearTimeout(timeout)
+          reject(new Error("Failed to add ready listener"))
+          return
+        }
+
+        if (!safelyAddListener(device, "error", onError)) {
+          addDebugInfo("Failed to add temporary error listener")
+          safelyRemoveListener(device, "ready", onReady)
+          clearTimeout(timeout)
+          reject(new Error("Failed to add error listener"))
+          return
+        }
 
         // Also resolve if device is already ready
         if (device.state === "ready") {
@@ -302,9 +451,21 @@ export function LiveCallListener({ callDetailId, callSid, contactName, onClose }
       addDebugInfo("Connection initiated")
 
       // Add event listeners using the stored handlers
-      connection.on("accept", eventHandlersRef.current.connectionAccept)
-      connection.on("disconnect", eventHandlersRef.current.connectionDisconnect)
-      connection.on("error", eventHandlersRef.current.connectionError)
+      const acceptHandler = eventHandlersRef.current.connectionAccept
+      const disconnectHandler = eventHandlersRef.current.connectionDisconnect
+      const errorHandler = eventHandlersRef.current.connectionError
+
+      if (!safelyAddListener(connection, "accept", acceptHandler)) {
+        addDebugInfo("Failed to add accept listener to connection")
+      }
+
+      if (!safelyAddListener(connection, "disconnect", disconnectHandler)) {
+        addDebugInfo("Failed to add disconnect listener to connection")
+      }
+
+      if (!safelyAddListener(connection, "error", errorHandler)) {
+        addDebugInfo("Failed to add error listener to connection")
+      }
 
       // Set up volume control
       if (typeof connection.volume === "function") {
@@ -316,52 +477,6 @@ export function LiveCallListener({ callDetailId, callSid, contactName, onClose }
       addDebugInfo(`Error connecting to conference: ${error instanceof Error ? error.message : "Unknown error"}`)
       throw error
     }
-  }
-
-  // Monitor audio levels to detect if audio is being received
-  const startAudioLevelMonitoring = () => {
-    if (audioLevelTimerRef.current) {
-      clearInterval(audioLevelTimerRef.current)
-    }
-
-    let silentSeconds = 0
-    audioLevelTimerRef.current = setInterval(() => {
-      if (connectionRef.current && connectionRef.current.status() === "open") {
-        try {
-          // Get the current input and output volumes if available
-          const inputVolume =
-            typeof connectionRef.current.inputVolume === "number" ? connectionRef.current.inputVolume : 0
-          const outputVolume =
-            typeof connectionRef.current.outputVolume === "number" ? connectionRef.current.outputVolume : 0
-
-          addDebugInfo(`Audio levels - Input: ${inputVolume.toFixed(2)}, Output: ${outputVolume.toFixed(2)}`)
-
-          // If we detect any output volume, mark audio as detected
-          if (outputVolume > 0.01) {
-            setAudioDetected(true)
-            silentSeconds = 0
-          } else {
-            silentSeconds++
-
-            // If we've been silent for more than 5 seconds, show a warning
-            if (silentSeconds > 5 && !audioDetected) {
-              addDebugInfo("No audio detected for 5 seconds")
-            }
-          }
-        } catch (error) {
-          addDebugInfo(`Error monitoring audio levels: ${error instanceof Error ? error.message : "Unknown error"}`)
-        }
-      }
-    }, 1000)
-  }
-
-  // Stop monitoring audio levels
-  const stopAudioLevelMonitoring = () => {
-    if (audioLevelTimerRef.current) {
-      clearInterval(audioLevelTimerRef.current)
-      audioLevelTimerRef.current = null
-    }
-    setAudioDetected(false)
   }
 
   // Connect to the live call - main function that orchestrates the process
@@ -403,7 +518,7 @@ export function LiveCallListener({ callDetailId, callSid, contactName, onClose }
   }
 
   // Disconnect from the call
-  const disconnectCall = () => {
+  const disconnectCall = useCallback(() => {
     try {
       addDebugInfo("Disconnecting from call...")
       stopAudioLevelMonitoring()
@@ -415,7 +530,9 @@ export function LiveCallListener({ callDetailId, callSid, contactName, onClose }
         safelyRemoveListener(connectionRef.current, "error", eventHandlersRef.current.connectionError)
 
         // Disconnect
-        connectionRef.current.disconnect()
+        if (typeof connectionRef.current.disconnect === "function") {
+          connectionRef.current.disconnect()
+        }
         connectionRef.current = null
       }
 
@@ -425,7 +542,9 @@ export function LiveCallListener({ callDetailId, callSid, contactName, onClose }
         safelyRemoveListener(deviceRef.current, "error", eventHandlersRef.current.deviceError)
 
         // Destroy device
-        deviceRef.current.destroy()
+        if (typeof deviceRef.current.destroy === "function") {
+          deviceRef.current.destroy()
+        }
         deviceRef.current = null
       }
 
@@ -437,7 +556,7 @@ export function LiveCallListener({ callDetailId, callSid, contactName, onClose }
       console.error("Error disconnecting:", error)
       addDebugInfo(`Error disconnecting: ${error instanceof Error ? error.message : "Unknown error"}`)
     }
-  }
+  }, [addDebugInfo, safelyRemoveListener, stopAudioLevelMonitoring])
 
   // Toggle mute
   const toggleMute = () => {
@@ -485,7 +604,7 @@ export function LiveCallListener({ callDetailId, callSid, contactName, onClose }
     return () => {
       disconnectCall()
     }
-  }, [])
+  }, [disconnectCall])
 
   // Retry connection
   const retryConnection = () => {
