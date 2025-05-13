@@ -5,8 +5,9 @@ import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
 import { Slider } from "@/components/ui/slider"
-import { PhoneIcon, PhoneOffIcon, Volume2Icon, VolumeXIcon, AlertCircleIcon } from "lucide-react"
+import { PhoneIcon, PhoneOffIcon, Volume2Icon, VolumeXIcon, AlertCircleIcon, InfoIcon } from "lucide-react"
 import { toast } from "sonner"
+import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
 
 interface LiveCallListenerProps {
   callDetailId: number
@@ -33,9 +34,12 @@ export function LiveCallListener({ callDetailId, callSid, contactName, onClose }
   const [sdkLoaded, setSdkLoaded] = useState(false)
   const [debugInfo, setDebugInfo] = useState<string[]>([])
   const [conferenceName, setConferenceName] = useState<string | null>(null)
+  const [audioDetected, setAudioDetected] = useState(false)
+  const [showTroubleshooting, setShowTroubleshooting] = useState(false)
   const connectionRef = useRef<any>(null)
   const timerRef = useRef<NodeJS.Timeout | null>(null)
   const deviceRef = useRef<any>(null)
+  const audioLevelTimerRef = useRef<NodeJS.Timeout | null>(null)
 
   const addDebugInfo = (info: string) => {
     setDebugInfo((prev) => [...prev, `${new Date().toISOString().split("T")[1].split(".")[0]}: ${info}`])
@@ -160,6 +164,10 @@ export function LiveCallListener({ callDetailId, callSid, contactName, onClose }
         fakeLocalDTMF: true,
         enableRingingState: true,
         debug: true,
+        // Important: Set this to false to ensure we can hear audio
+        audioConstraints: {
+          optional: [],
+        },
       })
 
       device.on("ready", () => {
@@ -216,15 +224,21 @@ export function LiveCallListener({ callDetailId, callSid, contactName, onClose }
 
       // Make the connection parameters
       const connectionParams = {
-        conferenceName: confName,
-        clientIdentity: identity,
-        muted: true,
+        // IMPORTANT: Set muted to false to ensure we can hear audio
+        To: confName,
+        From: identity,
+        // These parameters will be passed to the TwiML app
+        params: {
+          conferenceName: confName,
+          clientIdentity: identity,
+          muted: false, // Set to false to ensure we can hear audio
+        },
       }
 
       addDebugInfo(`Connection params: ${JSON.stringify(connectionParams)}`)
 
       // Connect to the conference
-      const connection = await device.connect({ params: connectionParams })
+      const connection = await device.connect(connectionParams)
 
       addDebugInfo("Connection initiated")
 
@@ -235,6 +249,9 @@ export function LiveCallListener({ callDetailId, callSid, contactName, onClose }
         setIsConnecting(false)
         setStatus("Connected")
         toast.success("Connected to live call")
+
+        // Start monitoring audio levels
+        startAudioLevelMonitoring(connection)
       })
 
       connection.on("disconnect", () => {
@@ -242,6 +259,7 @@ export function LiveCallListener({ callDetailId, callSid, contactName, onClose }
         setIsConnected(false)
         setStatus("Disconnected")
         toast.info("Disconnected from call")
+        stopAudioLevelMonitoring()
       })
 
       connection.on("error", (connectionError: any) => {
@@ -251,13 +269,57 @@ export function LiveCallListener({ callDetailId, callSid, contactName, onClose }
         setStatus("Error")
         setIsConnected(false)
         setIsConnecting(false)
+        stopAudioLevelMonitoring()
       })
+
+      // Set up volume control
+      connection.volume(volume)
 
       return connection
     } catch (error) {
       addDebugInfo(`Error connecting to conference: ${error instanceof Error ? error.message : "Unknown error"}`)
       throw error
     }
+  }
+
+  // Monitor audio levels to detect if audio is being received
+  const startAudioLevelMonitoring = (connection: any) => {
+    if (audioLevelTimerRef.current) {
+      clearInterval(audioLevelTimerRef.current)
+    }
+
+    let silentSeconds = 0
+    audioLevelTimerRef.current = setInterval(() => {
+      if (connection && connection.status() === "open") {
+        // Get the current input and output volumes
+        const inputVolume = connection.inputVolume || 0
+        const outputVolume = connection.outputVolume || 0
+
+        addDebugInfo(`Audio levels - Input: ${inputVolume.toFixed(2)}, Output: ${outputVolume.toFixed(2)}`)
+
+        // If we detect any output volume, mark audio as detected
+        if (outputVolume > 0.01) {
+          setAudioDetected(true)
+          silentSeconds = 0
+        } else {
+          silentSeconds++
+
+          // If we've been silent for more than 5 seconds, show a warning
+          if (silentSeconds > 5 && !audioDetected) {
+            addDebugInfo("No audio detected for 5 seconds")
+          }
+        }
+      }
+    }, 1000)
+  }
+
+  // Stop monitoring audio levels
+  const stopAudioLevelMonitoring = () => {
+    if (audioLevelTimerRef.current) {
+      clearInterval(audioLevelTimerRef.current)
+      audioLevelTimerRef.current = null
+    }
+    setAudioDetected(false)
   }
 
   // Connect to the live call - main function that orchestrates the process
@@ -285,6 +347,9 @@ export function LiveCallListener({ callDetailId, callSid, contactName, onClose }
       // Step 4: Connect to the conference
       const connection = await connectToConference(device, confName, identity)
       connectionRef.current = connection
+
+      // Ensure we're not muted
+      setIsMuted(false)
     } catch (error) {
       console.error("Error connecting to call:", error)
       addDebugInfo(`Error: ${error instanceof Error ? error.message : "Unknown error"}`)
@@ -299,6 +364,8 @@ export function LiveCallListener({ callDetailId, callSid, contactName, onClose }
   const disconnectCall = () => {
     try {
       addDebugInfo("Disconnecting from call...")
+      stopAudioLevelMonitoring()
+
       if (connectionRef.current) {
         connectionRef.current.disconnect()
         connectionRef.current = null
@@ -335,10 +402,15 @@ export function LiveCallListener({ callDetailId, callSid, contactName, onClose }
 
   // Handle volume change
   const handleVolumeChange = (value: number[]) => {
-    setVolume(value[0])
-    addDebugInfo(`Volume set to ${value[0]}`)
-    // Implement volume control if the Twilio SDK supports it
-    // This might require custom audio handling
+    const newVolume = value[0]
+    setVolume(newVolume)
+    addDebugInfo(`Volume set to ${newVolume}`)
+
+    // Apply volume to the connection if it exists
+    if (connectionRef.current) {
+      connectionRef.current.volume(newVolume)
+      addDebugInfo(`Applied volume ${newVolume} to connection`)
+    }
   }
 
   // Clean up on unmount
@@ -356,6 +428,7 @@ export function LiveCallListener({ callDetailId, callSid, contactName, onClose }
     }
     setError(null)
     setDebugInfo([])
+    setAudioDetected(false)
     connectToCall()
   }
 
@@ -492,6 +565,13 @@ export function LiveCallListener({ callDetailId, callSid, contactName, onClose }
             </div>
           )}
 
+          {isConnected && (
+            <div className="flex justify-between">
+              <span className="text-sm font-medium">Audio Detected:</span>
+              <Badge variant={audioDetected ? "success" : "destructive"}>{audioDetected ? "Yes" : "No"}</Badge>
+            </div>
+          )}
+
           {error && (
             <div className="bg-red-50 border border-red-200 rounded-md p-3 mt-2">
               <div className="flex items-start">
@@ -504,6 +584,41 @@ export function LiveCallListener({ callDetailId, callSid, contactName, onClose }
             </div>
           )}
         </div>
+
+        {isConnected && !audioDetected && elapsedTime > 5 && (
+          <Alert variant="warning">
+            <InfoIcon className="h-4 w-4" />
+            <AlertTitle>No audio detected</AlertTitle>
+            <AlertDescription>
+              We haven't detected any audio from the call. This could be because:
+              <ul className="list-disc pl-5 mt-2 text-sm">
+                <li>The call might be on hold or muted</li>
+                <li>There might be no active conversation</li>
+                <li>There might be an issue with the audio routing</li>
+              </ul>
+              <Button
+                variant="outline"
+                size="sm"
+                className="mt-2"
+                onClick={() => setShowTroubleshooting(!showTroubleshooting)}
+              >
+                {showTroubleshooting ? "Hide Troubleshooting" : "Show Troubleshooting"}
+              </Button>
+              {showTroubleshooting && (
+                <div className="mt-2 text-sm">
+                  <p className="font-medium">Try these steps:</p>
+                  <ol className="list-decimal pl-5 mt-1">
+                    <li>Check if your browser's volume is turned up</li>
+                    <li>Make sure the call is active and not on hold</li>
+                    <li>Try disconnecting and reconnecting</li>
+                    <li>Try using a different browser (Chrome works best)</li>
+                    <li>Check if your computer's audio output is working</li>
+                  </ol>
+                </div>
+              )}
+            </AlertDescription>
+          </Alert>
+        )}
 
         {isConnected && (
           <div className="space-y-4 pt-2">

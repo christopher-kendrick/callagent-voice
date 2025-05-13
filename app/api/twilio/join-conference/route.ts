@@ -8,9 +8,12 @@ export async function POST(request: NextRequest) {
     const url = new URL(request.url)
     let conferenceName = url.searchParams.get("conferenceName") || undefined
     let clientIdentity = url.searchParams.get("clientIdentity") || undefined
+    let muted = url.searchParams.get("muted") === "true"
 
     console.log(
-      `URL parameters: conferenceName=${conferenceName || "undefined"}, clientIdentity=${clientIdentity || "undefined"}`,
+      `URL parameters: conferenceName=${conferenceName || "undefined"}, clientIdentity=${
+        clientIdentity || "undefined"
+      }, muted=${muted}`,
     )
 
     // If not in URL, try to get from body
@@ -25,6 +28,7 @@ export async function POST(request: NextRequest) {
           const body = await request.json()
           conferenceName = body.conferenceName
           clientIdentity = clientIdentity || body.clientIdentity
+          muted = body.muted === true
           console.log(`Parsed JSON body: ${JSON.stringify(body)}`)
         } catch (parseError) {
           console.error("Error parsing JSON body:", parseError)
@@ -52,8 +56,11 @@ export async function POST(request: NextRequest) {
 
           conferenceName = formData.get("conferenceName")?.toString()
           clientIdentity = clientIdentity || formData.get("clientIdentity")?.toString()
+          muted = formData.get("muted") === "true"
           console.log(
-            `Parsed form data: conferenceName=${conferenceName || "undefined"}, clientIdentity=${clientIdentity || "undefined"}`,
+            `Parsed form data: conferenceName=${conferenceName || "undefined"}, clientIdentity=${
+              clientIdentity || "undefined"
+            }, muted=${muted}`,
           )
         } catch (formError) {
           console.error("Error parsing form data:", formError)
@@ -75,8 +82,11 @@ export async function POST(request: NextRequest) {
             const params = new URLSearchParams(text)
             conferenceName = params.get("conferenceName") || undefined
             clientIdentity = clientIdentity || params.get("clientIdentity") || undefined
+            muted = params.get("muted") === "true"
             console.log(
-              `Parsed from raw text: conferenceName=${conferenceName || "undefined"}, clientIdentity=${clientIdentity || "undefined"}`,
+              `Parsed from raw text: conferenceName=${conferenceName || "undefined"}, clientIdentity=${
+                clientIdentity || "undefined"
+              }, muted=${muted}`,
             )
           }
         } catch (error) {
@@ -91,10 +101,14 @@ export async function POST(request: NextRequest) {
       console.log(`Using default conference name: ${conferenceName}`)
     }
 
-    console.log(`Generating TwiML for conference: ${conferenceName}, client: ${clientIdentity || "unknown"}`)
+    console.log(
+      `Generating TwiML for conference: ${conferenceName}, client: ${clientIdentity || "unknown"}, muted: ${muted}`,
+    )
 
     // Generate TwiML for joining a conference without any leading whitespace or newlines
-    const twiml = `<?xml version="1.0" encoding="UTF-8"?><Response><Dial><Conference waitUrl="" startConferenceOnEnter="false" endConferenceOnExit="false" muted="true">${conferenceName}</Conference></Dial></Response>`
+    // IMPORTANT: We're setting startConferenceOnEnter to true to ensure the conference starts
+    // and we're NOT setting the muted attribute to ensure we can hear audio
+    const twiml = `<?xml version="1.0" encoding="UTF-8"?><Response><Dial><Conference waitUrl="" startConferenceOnEnter="true" endConferenceOnExit="false">${conferenceName}</Conference></Dial></Response>`
 
     console.log("Generated TwiML successfully")
 
