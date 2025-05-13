@@ -110,8 +110,12 @@ export function LiveCallListener({ callDetailId, callSid, contactName, onClose }
 
       const data = await response.json()
       addDebugInfo(`Received conference name: ${data.conferenceName}`)
-      addDebugInfo(`Call SID: ${data.callSid}`)
-      addDebugInfo(`Call status: ${data.status}`)
+      if (data.callSid) {
+        addDebugInfo(`Call SID: ${data.callSid}`)
+      }
+      if (data.status) {
+        addDebugInfo(`Call status: ${data.status}`)
+      }
       if (data.contactName) {
         addDebugInfo(`Contact name: ${data.contactName}`)
       }
@@ -364,16 +368,18 @@ export function LiveCallListener({ callDetailId, callSid, contactName, onClose }
 
       addDebugInfo("Testing direct TwiML access...")
 
-      // Make a direct request to the join-conference endpoint
-      const response = await fetch("/api/twilio/join-conference", {
+      // Create a FormData object for the request
+      const formData = new FormData()
+      formData.append("conferenceName", conferenceName)
+      formData.append("clientIdentity", "test-client")
+
+      // Make a direct request to the join-conference endpoint using URL parameters
+      const url = `/api/twilio/join-conference?conferenceName=${encodeURIComponent(conferenceName)}&clientIdentity=test-client`
+
+      addDebugInfo(`Sending request to: ${url}`)
+
+      const response = await fetch(url, {
         method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          conferenceName,
-          clientIdentity: "test-client",
-        }),
       })
 
       if (!response.ok) {
