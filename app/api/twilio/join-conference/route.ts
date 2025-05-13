@@ -93,17 +93,8 @@ export async function POST(request: NextRequest) {
 
     console.log(`Generating TwiML for conference: ${conferenceName}, client: ${clientIdentity || "unknown"}`)
 
-    // Generate TwiML for joining a conference
-    const twiml = `
-      <?xml version="1.0" encoding="UTF-8"?>
-      <Response>
-        <Dial>
-          <Conference waitUrl="" startConferenceOnEnter="false" endConferenceOnExit="false" muted="true">
-            ${conferenceName}
-          </Conference>
-        </Dial>
-      </Response>
-    `
+    // Generate TwiML for joining a conference without any leading whitespace or newlines
+    const twiml = `<?xml version="1.0" encoding="UTF-8"?><Response><Dial><Conference waitUrl="" startConferenceOnEnter="false" endConferenceOnExit="false" muted="true">${conferenceName}</Conference></Dial></Response>`
 
     console.log("Generated TwiML successfully")
 
