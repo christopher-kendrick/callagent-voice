@@ -359,22 +359,29 @@ export function LiveCallListener({ callDetailId, callSid, contactName, onClose }
     connectToCall()
   }
 
+  // Create a test conference name if one doesn't exist
+  const getTestConferenceName = () => {
+    if (conferenceName) {
+      return conferenceName
+    }
+
+    // Generate a test conference name
+    const testConf = `test_conference_${Date.now()}`
+    addDebugInfo(`Generated test conference name: ${testConf}`)
+    setConferenceName(testConf)
+    return testConf
+  }
+
   // Test direct TwiML
   const testDirectTwiML = async () => {
     try {
-      if (!conferenceName) {
-        throw new Error("No conference name available")
-      }
+      // Get a conference name (either existing or generated)
+      const testConfName = getTestConferenceName()
 
-      addDebugInfo("Testing direct TwiML access...")
-
-      // Create a FormData object for the request
-      const formData = new FormData()
-      formData.append("conferenceName", conferenceName)
-      formData.append("clientIdentity", "test-client")
+      addDebugInfo(`Testing direct TwiML access with conference: ${testConfName}`)
 
       // Make a direct request to the join-conference endpoint using URL parameters
-      const url = `/api/twilio/join-conference?conferenceName=${encodeURIComponent(conferenceName)}&clientIdentity=test-client`
+      const url = `/api/twilio/join-conference?conferenceName=${encodeURIComponent(testConfName)}`
 
       addDebugInfo(`Sending request to: ${url}`)
 
@@ -426,6 +433,13 @@ export function LiveCallListener({ callDetailId, callSid, contactName, onClose }
             <div className="flex justify-between">
               <span className="text-sm font-medium">Call SID:</span>
               <span className="text-sm truncate max-w-[200px]">{callSid}</span>
+            </div>
+          )}
+
+          {conferenceName && (
+            <div className="flex justify-between">
+              <span className="text-sm font-medium">Conference:</span>
+              <span className="text-sm truncate max-w-[200px]">{conferenceName}</span>
             </div>
           )}
 
