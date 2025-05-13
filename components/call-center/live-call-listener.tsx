@@ -110,6 +110,12 @@ export function LiveCallListener({ callDetailId, callSid, contactName, onClose }
 
       const data = await response.json()
       addDebugInfo(`Received conference name: ${data.conferenceName}`)
+      addDebugInfo(`Call SID: ${data.callSid}`)
+      addDebugInfo(`Call status: ${data.status}`)
+      if (data.contactName) {
+        addDebugInfo(`Contact name: ${data.contactName}`)
+      }
+
       setConferenceName(data.conferenceName)
       return data.conferenceName
     } catch (error) {

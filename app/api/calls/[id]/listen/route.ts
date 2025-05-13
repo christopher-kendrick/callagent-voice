@@ -1,10 +1,10 @@
 import { type NextRequest, NextResponse } from "next/server"
 import { getServerSession } from "next-auth"
 import { authOptions } from "@/auth"
-import { neon } from "@neondatabase/serverless"
+import { db } from "@/lib/db"
+import { callDetails } from "@/lib/db/schema"
+import { eq } from "drizzle-orm"
 import { v4 as uuidv4 } from "uuid"
-
-const sql = neon(process.env.DATABASE_URL!)
 
 export async function POST(request: NextRequest, { params }: { params: { id: string } }) {
   try {
@@ -20,30 +20,47 @@ export async function POST(request: NextRequest, { params }: { params: { id: str
       return NextResponse.json({ error: "Invalid call ID" }, { status: 400 })
     }
 
-    // Get call details from database
-    const callDetails = await sql`
-      SELECT id, call_sid, status, contact_name
-      FROM call_details
-      WHERE id = ${callDetailId}
-    `
+    console.log(`Getting call details for ID: ${callDetailId}`)
 
-    if (!callDetails || callDetails.length === 0) {
+    // Get call details from database using drizzle ORM
+    const callDetail = await db.query.callDetails.findFirst({
+      where: eq(callDetails.id, callDetailId),
+      with: {
+        contact: true,
+      },
+    })
+
+    if (!callDetail) {
+      console.error(`Call detail not found for ID: ${callDetailId}`)
       return NextResponse.json({ error: "Call not found" }, { status: 404 })
     }
 
-    const call = callDetails[0]
+    console.log(
+      `Found call detail:`,
+      JSON.stringify({
+        id: callDetail.id,
+        twilioSid: callDetail.twilioSid,
+        status: callDetail.status,
+        contactName: callDetail.contact?.name,
+      }),
+    )
+
+    // Check if the call has a Twilio SID
+    if (!callDetail.twilioSid) {
+      return NextResponse.json({ error: "Call has no Twilio SID" }, { status: 400 })
+    }
 
     // Generate a unique conference name based on the call SID
-    const conferenceName = `listen_${call.call_sid}_${uuidv4().substring(0, 8)}`
+    const conferenceName = `listen_${callDetail.twilioSid}_${uuidv4().substring(0, 8)}`
 
-    console.log(`Setting up conference ${conferenceName} for call ${call.call_sid}`)
+    console.log(`Setting up conference ${conferenceName} for call ${callDetail.twilioSid}`)
 
     // Return the conference name to the client
     return NextResponse.json({
       conferenceName,
-      callSid: call.call_sid,
-      status: call.status,
-      contactName: call.contact_name,
+      callSid: callDetail.twilioSid,
+      status: callDetail.status,
+      contactName: callDetail.contact?.name,
     })
   } catch (error) {
     console.error("Error setting up call listening:", error)

@@ -1,31 +1,20 @@
 import { type NextRequest, NextResponse } from "next/server"
 
-// Get Twilio credentials from environment variables
-const accountSid = process.env.TWILIO_ACCOUNT_SID
-const authToken = process.env.TWILIO_AUTH_TOKEN
-
 export async function POST(request: NextRequest) {
   try {
-    // Basic validation of Twilio credentials
-    if (!accountSid || !authToken) {
-      console.error("Missing Twilio credentials")
-      return NextResponse.json({ error: "Server configuration error: Missing Twilio credentials" }, { status: 500 })
-    }
-
-    // Parse the request body
-    const body = await request.json().catch(() => ({}))
+    // Get the conference name from the request body
+    const body = await request.json()
     const { conferenceName, clientIdentity } = body
 
     if (!conferenceName) {
-      console.error("Missing conference name in request")
       return NextResponse.json({ error: "Conference name is required" }, { status: 400 })
     }
 
-    console.log(`Generating TwiML to join conference: ${conferenceName} for client: ${clientIdentity || "unknown"}`)
+    console.log(`Generating TwiML for conference: ${conferenceName}, client: ${clientIdentity || "unknown"}`)
 
-    // Generate TwiML to join the conference
-    // Note: We're using waitUrl="" to prevent the default hold music
+    // Generate TwiML for joining a conference
     const twiml = `
+      <?xml version="1.0" encoding="UTF-8"?>
       <Response>
         <Dial>
           <Conference waitUrl="" startConferenceOnEnter="false" endConferenceOnExit="false" muted="true">
@@ -35,28 +24,17 @@ export async function POST(request: NextRequest) {
       </Response>
     `
 
-    console.log(`Generated TwiML for conference: ${conferenceName}`)
-
+    // Return the TwiML with the correct content type
     return new NextResponse(twiml, {
       headers: {
         "Content-Type": "text/xml",
       },
     })
   } catch (error) {
-    console.error("Error joining conference:", error)
-
-    // Return error as TwiML
-    const errorTwiml = `
-      <Response>
-        <Say>Sorry, there was an error joining the conference.</Say>
-        <Say>${error instanceof Error ? error.message : "Unknown error"}</Say>
-      </Response>
-    `
-
-    return new NextResponse(errorTwiml, {
-      headers: {
-        "Content-Type": "text/xml",
-      },
-    })
+    console.error("Error generating TwiML:", error)
+    return NextResponse.json(
+      { error: `Failed to generate TwiML: ${error instanceof Error ? error.message : "Unknown error"}` },
+      { status: 500 },
+    )
   }
 }
