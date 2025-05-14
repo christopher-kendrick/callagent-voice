@@ -2,12 +2,12 @@
 
 import { useState, useEffect } from "react"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
+import { ContactsTab } from "./contacts-tab"
 import { ScriptsTab } from "./scripts-tab"
 import { NewCallTab } from "./new-call-tab"
 import { CallsTab } from "./calls-tab"
 import { PromptsTab } from "./prompts-tab"
 import { ConfigsTab } from "./configs-tab"
-import { ContactList } from "@/components/contact-elements"
 
 export function CallCenterDashboard() {
   const [activeTab, setActiveTab] = useState("new-call")
@@ -147,7 +147,7 @@ export function CallCenterDashboard() {
       </TabsContent>
 
       <TabsContent value="contacts" className="space-y-4">
-        <ContactList />
+        <ContactsTab contacts={contacts || []} loading={loading.contacts} onContactsChange={handleRefresh} />
       </TabsContent>
 
       <TabsContent value="scripts" className="space-y-4">
