@@ -10,12 +10,16 @@ const nextConfig = {
   images: {
     unoptimized: true,
   },
-  webpack: (config, { isServer }) => {
-    // Add resolver for React to ensure only one copy is used
-    config.resolve.alias = {
-      ...config.resolve.alias,
-      'react': require.resolve('react'),
-      'react-dom': require.resolve('react-dom'),
+  webpack: (config) => {
+    // Use path resolution without require
+    config.resolve = {
+      ...config.resolve,
+      alias: {
+        ...config.resolve.alias,
+        // Ensure React is deduped
+        'react': './node_modules/react',
+        'react-dom': './node_modules/react-dom',
+      },
     };
     
     return config;
