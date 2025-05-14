@@ -1,5 +1,6 @@
 /** @type {import('next').NextConfig} */
 const nextConfig = {
+  reactStrictMode: true,
   eslint: {
     ignoreDuringBuilds: true,
   },
@@ -9,6 +10,16 @@ const nextConfig = {
   images: {
     unoptimized: true,
   },
-}
+  webpack: (config, { isServer }) => {
+    // Add resolver for React to ensure only one copy is used
+    config.resolve.alias = {
+      ...config.resolve.alias,
+      'react': require.resolve('react'),
+      'react-dom': require.resolve('react-dom'),
+    };
+    
+    return config;
+  },
+};
 
-export default nextConfig
+export default nextConfig;
