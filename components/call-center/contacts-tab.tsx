@@ -36,6 +36,10 @@ export function ContactsTab({ contacts, loading, onContactsChange }: ContactsTab
     notes: "",
   })
 
+  // Add a new state for delete confirmation dialog
+  const [contactToDelete, setContactToDelete] = useState<Contact | null>(null)
+  const [isDeleteDialogOpen, setIsDeleteDialogOpen] = useState(false)
+
   const handleAddContact = async (e: React.FormEvent) => {
     e.preventDefault()
     try {
@@ -61,6 +65,27 @@ export function ContactsTab({ contacts, loading, onContactsChange }: ContactsTab
       }
     } catch (error) {
       console.error("Error adding contact:", error)
+    }
+  }
+
+  // Add a function to handle contact deletion
+  const handleDeleteContact = async () => {
+    if (!contactToDelete) return
+
+    try {
+      const response = await fetch(`/api/contacts/${contactToDelete.id}`, {
+        method: "DELETE",
+      })
+
+      if (response.ok) {
+        setIsDeleteDialogOpen(false)
+        setContactToDelete(null)
+        onContactsChange()
+      } else {
+        console.error("Failed to delete contact")
+      }
+    } catch (error) {
+      console.error("Error deleting contact:", error)
     }
   }
 
@@ -132,6 +157,25 @@ export function ContactsTab({ contacts, loading, onContactsChange }: ContactsTab
             </form>
           </DialogContent>
         </Dialog>
+        {/* Add a delete confirmation dialog */}
+        <Dialog open={isDeleteDialogOpen} onOpenChange={setIsDeleteDialogOpen}>
+          <DialogContent>
+            <DialogHeader>
+              <DialogTitle>Confirm Deletion</DialogTitle>
+              <DialogDescription>
+                Are you sure you want to delete {contactToDelete?.name}? This action cannot be undone.
+              </DialogDescription>
+            </DialogHeader>
+            <DialogFooter>
+              <Button variant="outline" onClick={() => setIsDeleteDialogOpen(false)}>
+                Cancel
+              </Button>
+              <Button variant="destructive" onClick={handleDeleteContact}>
+                Delete
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
       </CardHeader>
       <CardContent>
         {loading ? (
@@ -174,7 +218,14 @@ export function ContactsTab({ contacts, loading, onContactsChange }: ContactsTab
                         <Button variant="ghost" size="icon">
                           <PencilIcon className="h-4 w-4" />
                         </Button>
-                        <Button variant="ghost" size="icon">
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          onClick={() => {
+                            setContactToDelete(contact)
+                            setIsDeleteDialogOpen(true)
+                          }}
+                        >
                           <Trash2Icon className="h-4 w-4" />
                         </Button>
                       </div>
