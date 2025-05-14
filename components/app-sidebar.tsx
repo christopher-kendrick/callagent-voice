@@ -17,6 +17,7 @@ import {
   SearchIcon,
   SettingsIcon,
   UsersIcon,
+  PhoneIcon,
 } from "lucide-react"
 
 import { NavDocuments } from "./nav-documents"
@@ -44,6 +45,16 @@ const data = {
       title: "Dashboard",
       url: "#",
       icon: LayoutDashboardIcon,
+    },
+    {
+      title: "Contacts",
+      url: "https://contacts.impactfulagents.com/",
+      icon: UsersIcon,
+    },
+    {
+      title: "Numbers",
+      url: "https://numbers.impactfulagents.com/",
+      icon: PhoneIcon,
     },
     {
       title: "Lifecycle",
