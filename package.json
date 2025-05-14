@@ -12,7 +12,6 @@
     "@auth/core": "latest",
     "@aws-sdk/client-rds-data": "latest",
     "@cloudflare/workers-types": "latest",
-    "@coogichrisla/contact-elements": "latest",
     "@dnd-kit/core": "latest",
     "@dnd-kit/modifiers": "latest",
     "@dnd-kit/sortable": "latest",
