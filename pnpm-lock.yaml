@@ -17,6 +17,9 @@ importers:
       '@cloudflare/workers-types':
         specifier: latest
         version: 4.20250514.0
+      '@coogichrisla/contact-elements':
+        specifier: latest
+        version: 0.1.0(react-dom@19.0.0(react@19.0.0))(react@19.0.0)
       '@dnd-kit/core':
         specifier: latest
         version: 6.3.1(react-dom@19.0.0(react@19.0.0))(react@19.0.0)
@@ -921,6 +924,12 @@ packages:
 
   '@cloudflare/workers-types@4.20250514.0':
     resolution: {integrity: sha512-zjyqRjoFnAzg7n+mxMxJAbIeOggUXLJTXA8WyT+xGDE+6MF9bSf1ypEULu4DXQQYLf6nDM6NwzLex/8ABTH+Lw==}
+
+  '@coogichrisla/contact-elements@0.1.0':
+    resolution: {integrity: sha512-FEZVqQv6a1ymH947yLfMg/QV2AXruSRjgFcD/FgJ0s4AZVp6vC/g9BcOp1btZWURq5j1nYB2W8j7Pc4qiRKc3g==}
+    peerDependencies:
+      react: ^18.0.0
+      react-dom: ^18.0.0
 
   '@dnd-kit/accessibility@3.1.1':
     resolution: {integrity: sha512-2P+YgaXF+gRsIihwwY1gCsQSYnu9Zyj2py8kY5fFvUM1qm2WA2u639R6YNVfU4GWr+ZM5mqEsfHZZLoRONbemw==}
@@ -6559,6 +6568,12 @@ snapshots:
       '@babel/helper-validator-identifier': 7.27.1
 
   '@cloudflare/workers-types@4.20250514.0': {}
+
+  '@coogichrisla/contact-elements@0.1.0(react-dom@19.0.0(react@19.0.0))(react@19.0.0)':
+    dependencies:
+      react: 19.0.0
+      react-dom: 19.0.0(react@19.0.0)
+      terser: 5.39.1
 
   '@dnd-kit/accessibility@3.1.1(react@19.0.0)':
     dependencies:
