@@ -1,24 +1,8 @@
 "use client"
-
-import React from "react"
-
 import { useState } from "react"
 import { useSession } from "next-auth/react"
-import dynamic from "next/dynamic"
-import { Skeleton } from "@/components/ui/skeleton"
 import { Alert, AlertCircle, AlertDescription, AlertTitle } from "@/components/ui/alert"
-
-// Dynamically import the ContactList component with SSR disabled
-const ContactListComponent = dynamic(() => import("@coogichrisla/contact-elements").then((mod) => mod.ContactList), {
-  ssr: false,
-  loading: () => (
-    <div className="space-y-2">
-      <Skeleton className="h-12 w-full" />
-      <Skeleton className="h-12 w-full" />
-      <Skeleton className="h-12 w-full" />
-    </div>
-  ),
-})
+import { ContactList as ContactListComponent } from "@coogichrisla/contact-elements"
 
 export function ContactList() {
   const { data: session, status } = useSession()
@@ -42,13 +26,7 @@ export function ContactList() {
 
   // Show loading state while session is loading
   if (status === "loading") {
-    return (
-      <div className="space-y-2">
-        <Skeleton className="h-12 w-full" />
-        <Skeleton className="h-12 w-full" />
-        <Skeleton className="h-12 w-full" />
-      </div>
-    )
+    return <div className="p-4">Loading contacts...</div>
   }
 
   // Show sign-in message if not authenticated
@@ -75,40 +53,12 @@ export function ContactList() {
 
   return (
     <div className="contact-list-wrapper">
-      <ErrorBoundary fallback={<p>Something went wrong with the contact list. Please try again later.</p>}>
-        <ContactListComponent
-          userId={session?.user?.id || ""}
-          onContactClick={handleContactClick}
-          onContactEdit={handleContactEdit}
-          onContactDelete={handleContactDelete}
-        />
-      </ErrorBoundary>
+      <ContactListComponent
+        userId={session?.user?.id || ""}
+        onContactClick={handleContactClick}
+        onContactEdit={handleContactEdit}
+        onContactDelete={handleContactDelete}
+      />
     </div>
   )
-}
-
-// Simple error boundary component
-class ErrorBoundary extends React.Component<
-  { children: React.ReactNode; fallback: React.ReactNode },
-  { hasError: boolean }
-> {
-  constructor(props: { children: React.ReactNode; fallback: React.ReactNode }) {
-    super(props)
-    this.state = { hasError: false }
-  }
-
-  static getDerivedStateFromError() {
-    return { hasError: true }
-  }
-
-  componentDidCatch(error: any, errorInfo: any) {
-    console.error("Contact list error:", error, errorInfo)
-  }
-
-  render() {
-    if (this.state.hasError) {
-      return this.props.fallback
-    }
-    return this.props.children
-  }
 }

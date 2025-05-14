@@ -1,23 +1,7 @@
 "use client"
-
-import React from "react"
-
 import { useState } from "react"
-import dynamic from "next/dynamic"
-import { Skeleton } from "@/components/ui/skeleton"
 import { Alert, AlertCircle, AlertDescription, AlertTitle } from "@/components/ui/alert"
-
-// Dynamically import the ContactForm component with SSR disabled
-const ContactFormComponent = dynamic(() => import("@coogichrisla/contact-elements").then((mod) => mod.ContactForm), {
-  ssr: false,
-  loading: () => (
-    <div className="space-y-2">
-      <Skeleton className="h-12 w-full" />
-      <Skeleton className="h-12 w-full" />
-      <Skeleton className="h-12 w-full" />
-    </div>
-  ),
-})
+import { ContactForm as ContactFormComponent } from "@coogichrisla/contact-elements"
 
 interface ContactFormProps {
   onSubmit?: (data: any) => void
@@ -62,40 +46,7 @@ export function ContactForm({ onSubmit, onCancel, initialData, isEdit = false }:
 
   return (
     <div className="contact-form-wrapper">
-      <ErrorBoundary fallback={<p>Something went wrong with the contact form. Please try again later.</p>}>
-        <ContactFormComponent
-          onSubmit={handleSubmit}
-          onCancel={handleCancel}
-          initialData={initialData}
-          isEdit={isEdit}
-        />
-      </ErrorBoundary>
+      <ContactFormComponent onSubmit={handleSubmit} onCancel={handleCancel} initialData={initialData} isEdit={isEdit} />
     </div>
   )
-}
-
-// Simple error boundary component
-class ErrorBoundary extends React.Component<
-  { children: React.ReactNode; fallback: React.ReactNode },
-  { hasError: boolean }
-> {
-  constructor(props: { children: React.ReactNode; fallback: React.ReactNode }) {
-    super(props)
-    this.state = { hasError: false }
-  }
-
-  static getDerivedStateFromError() {
-    return { hasError: true }
-  }
-
-  componentDidCatch(error: any, errorInfo: any) {
-    console.error("Contact form error:", error, errorInfo)
-  }
-
-  render() {
-    if (this.state.hasError) {
-      return this.props.fallback
-    }
-    return this.props.children
-  }
 }
